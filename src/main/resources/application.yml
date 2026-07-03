@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: interviewai
+  datasource:
+    url: jdbc:postgresql://localhost:5432/interviewai
+    username: interviewai
+    password: interviewai
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  threads:
+    virtual:
+      enabled: true
+
+interviewai:
+  llm:
+    ollama:
+      base-url: http://localhost:11434
+      model-name: llama3.2:3b
+      timeout: 60s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

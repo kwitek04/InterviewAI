@@ -1,0 +1,15 @@
+target/
+*.class
+*.jar
+
+.idea/
+*.iml
+.vscode/
+
+.env
+*.log
+
+node_modules/
+dist/
+
+SYSTEM_PROMPT.md
