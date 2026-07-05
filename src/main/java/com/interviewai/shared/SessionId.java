@@ -1,10 +1,12 @@
-package com.interviewai.session.domain;
+package com.interviewai.shared;
 
 import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Globally unique identifier of an {@link InterviewSession}.
+ * Globally unique identifier of an interview session.
+ * <p>
+ * Lives in the shared module because it is referenced across module boundaries.
  */
 public record SessionId(UUID value) {
 

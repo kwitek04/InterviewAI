@@ -1,5 +1,7 @@
 package com.interviewai.session.domain;
 
+import com.interviewai.shared.SessionId;
+
 import java.util.Objects;
 
 /**
