@@ -26,10 +26,10 @@ public record InterviewSession(SessionId id, SessionState state, Transcript tran
     /**
      * Applies a command to this session, producing its next state.
      * <p>
-     * Ending an already {@link SessionState.Completed} session is idempotent and returns
-     * this same instance rather than throwing, so repeated end requests are harmless.
-     * Every other command that is invalid for the current state throws
-     * {@link SessionTransitionException}.
+     * {@link SessionState.Completed} and {@link SessionState.Cancelled} are terminal:
+     * every command applied to a session in either state throws
+     * {@link SessionTransitionException}, including a repeated end or cancel.
+     * Any other command that is invalid for the current state throws the same exception.
      */
     public InterviewSession apply(SessionCommand command) {
         Objects.requireNonNull(command, "command must not be null");
@@ -37,15 +37,17 @@ public record InterviewSession(SessionId id, SessionState state, Transcript tran
             case SessionState.Created() -> applyToCreated(command);
             case SessionState.InProgress() -> applyToInProgress(command);
             case SessionState.AwaitingAnswer() -> applyToAwaitingAnswer(command);
-            case SessionState.Completed() -> applyToCompleted(command);
+            case SessionState.Completed() -> applyToTerminalState(command);
+            case SessionState.Cancelled() -> applyToTerminalState(command);
         };
     }
 
     private InterviewSession applyToCreated(SessionCommand command) {
-        if (command instanceof SessionCommand.StartInterview) {
-            return withState(new SessionState.InProgress());
-        }
-        throw rejectedBy(command);
+        return switch (command) {
+            case SessionCommand.StartInterview() -> withState(new SessionState.InProgress());
+            case SessionCommand.CancelInterview() -> withState(new SessionState.Cancelled());
+            default -> throw rejectedBy(command);
+        };
     }
 
     private InterviewSession applyToInProgress(SessionCommand command) {
@@ -53,7 +55,7 @@ public record InterviewSession(SessionId id, SessionState state, Transcript tran
             case SessionCommand.AskQuestion askQuestion -> withStateAndMessage(
                     new SessionState.AwaitingAnswer(),
                     new Message(MessageRole.INTERVIEWER, askQuestion.content(), askQuestion.askedAt()));
-            case SessionCommand.EndInterview() -> withState(new SessionState.Completed());
+            case SessionCommand.CancelInterview() -> withState(new SessionState.Cancelled());
             default -> throw rejectedBy(command);
         };
     }
@@ -64,14 +66,12 @@ public record InterviewSession(SessionId id, SessionState state, Transcript tran
                     new SessionState.InProgress(),
                     new Message(MessageRole.CANDIDATE, submitAnswer.content(), submitAnswer.answeredAt()));
             case SessionCommand.EndInterview() -> withState(new SessionState.Completed());
+            case SessionCommand.CancelInterview() -> withState(new SessionState.Cancelled());
             default -> throw rejectedBy(command);
         };
     }
 
-    private InterviewSession applyToCompleted(SessionCommand command) {
-        if (command instanceof SessionCommand.EndInterview) {
-            return this;
-        }
+    private InterviewSession applyToTerminalState(SessionCommand command) {
         throw rejectedBy(command);
     }
 

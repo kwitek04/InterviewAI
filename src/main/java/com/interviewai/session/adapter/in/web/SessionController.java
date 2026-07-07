@@ -54,4 +54,22 @@ class SessionController {
         InterviewSession session = sessionApplicationService.getSession(new SessionId(id));
         return SessionView.from(session);
     }
+
+    /**
+     * Ends the interview, marking the session as completed.
+     */
+    @PostMapping("/{id}/end")
+    SessionView endSession(@PathVariable UUID id) {
+        InterviewSession session = sessionApplicationService.endInterview(new SessionId(id));
+        return SessionView.from(session);
+    }
+
+    /**
+     * Cancels the interview.
+     */
+    @PostMapping("/{id}/cancel")
+    SessionView cancelSession(@PathVariable UUID id) {
+        InterviewSession session = sessionApplicationService.cancelInterview(new SessionId(id));
+        return SessionView.from(session);
+    }
 }

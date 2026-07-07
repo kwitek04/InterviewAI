@@ -64,20 +64,6 @@ class InterviewSessionTest {
     }
 
     @Test
-    @DisplayName("ending an in-progress session transitions it to Completed without altering the transcript")
-    void apply_endInterviewOnInProgress_transitionsToCompleted() {
-        Transcript existing = Transcript.empty()
-                .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
-        InterviewSession inProgress = new InterviewSession(
-                SessionId.generate(), new SessionState.InProgress(), existing);
-
-        InterviewSession result = inProgress.apply(new SessionCommand.EndInterview());
-
-        assertThat(result.state()).isEqualTo(new SessionState.Completed());
-        assertThat(result.transcript()).isEqualTo(existing);
-    }
-
-    @Test
     @DisplayName("ending a session while awaiting an answer transitions it to Completed and keeps the unanswered question")
     void apply_endInterviewOnAwaitingAnswer_transitionsToCompleted() {
         Transcript existing = Transcript.empty()
@@ -92,14 +78,41 @@ class InterviewSessionTest {
     }
 
     @Test
-    @DisplayName("ending an already completed session is idempotent and returns the same instance")
-    void apply_endInterviewOnCompleted_isIdempotentAndReturnsSameInstance() {
-        InterviewSession completed = new InterviewSession(
-                SessionId.generate(), new SessionState.Completed(), Transcript.empty());
+    @DisplayName("cancelling a newly created session transitions it to Cancelled")
+    void apply_cancelInterviewOnCreated_transitionsToCancelled() {
+        InterviewSession created = InterviewSession.create(SessionId.generate());
 
-        InterviewSession result = completed.apply(new SessionCommand.EndInterview());
+        InterviewSession result = created.apply(new SessionCommand.CancelInterview());
 
-        assertThat(result).isSameAs(completed);
+        assertThat(result.state()).isEqualTo(new SessionState.Cancelled());
+    }
+
+    @Test
+    @DisplayName("cancelling an in-progress session transitions it to Cancelled without altering the transcript")
+    void apply_cancelInterviewOnInProgress_transitionsToCancelled() {
+        Transcript existing = Transcript.empty()
+                .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
+        InterviewSession inProgress = new InterviewSession(
+                SessionId.generate(), new SessionState.InProgress(), existing);
+
+        InterviewSession result = inProgress.apply(new SessionCommand.CancelInterview());
+
+        assertThat(result.state()).isEqualTo(new SessionState.Cancelled());
+        assertThat(result.transcript()).isEqualTo(existing);
+    }
+
+    @Test
+    @DisplayName("cancelling a session while awaiting an answer transitions it to Cancelled and keeps the unanswered question")
+    void apply_cancelInterviewOnAwaitingAnswer_transitionsToCancelled() {
+        Transcript existing = Transcript.empty()
+                .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
+        InterviewSession awaitingAnswer = new InterviewSession(
+                SessionId.generate(), new SessionState.AwaitingAnswer(), existing);
+
+        InterviewSession result = awaitingAnswer.apply(new SessionCommand.CancelInterview());
+
+        assertThat(result.state()).isEqualTo(new SessionState.Cancelled());
+        assertThat(result.transcript()).isEqualTo(existing);
     }
 
     @Test
@@ -112,6 +125,7 @@ class InterviewSessionTest {
                 .apply(new SessionCommand.AskQuestion("Describe a challenging project", QUESTION_TIME.plusSeconds(60)))
                 .apply(new SessionCommand.SubmitAnswer(
                         "I migrated a monolith to microservices", ANSWER_TIME.plusSeconds(60)))
+                .apply(new SessionCommand.AskQuestion("What did you learn from that?", QUESTION_TIME.plusSeconds(120)))
                 .apply(new SessionCommand.EndInterview());
 
         assertThat(session.state()).isEqualTo(new SessionState.Completed());
@@ -120,7 +134,8 @@ class InterviewSessionTest {
                 new Message(MessageRole.CANDIDATE, "I am a backend developer", ANSWER_TIME),
                 new Message(MessageRole.INTERVIEWER, "Describe a challenging project", QUESTION_TIME.plusSeconds(60)),
                 new Message(MessageRole.CANDIDATE,
-                        "I migrated a monolith to microservices", ANSWER_TIME.plusSeconds(60)));
+                        "I migrated a monolith to microservices", ANSWER_TIME.plusSeconds(60)),
+                new Message(MessageRole.INTERVIEWER, "What did you learn from that?", QUESTION_TIME.plusSeconds(120)));
     }
 
     @Test
@@ -133,19 +148,25 @@ class InterviewSessionTest {
         assertThat(afterStart).isNotSameAs(created);
     }
 
-    @ParameterizedTest(name = "[{index}] state={0}, command={1}")
-    @MethodSource("invalidTransitions")
-    @DisplayName("applying a command that is invalid for the current state throws SessionTransitionException")
-    void apply_invalidCommandForCurrentState_throwsSessionTransitionException(
-            SessionState state, SessionCommand command) {
+    @ParameterizedTest(name = "[{index}] state={0}, command={1} -> {2}")
+    @MethodSource("transitionMatrix")
+    @DisplayName("every state and command combination transitions to the expected state or throws SessionTransitionException")
+    void apply_everyStateAndCommandCombination_transitionsAsExpectedOrThrows(
+            SessionState state, SessionCommand command, Class<? extends SessionState> expectedResultState) {
         InterviewSession session = new InterviewSession(SessionId.generate(), state, Transcript.empty());
 
-        SessionTransitionException exception = catchThrowableOfType(
-                () -> session.apply(command), SessionTransitionException.class);
+        if (expectedResultState == null) {
+            SessionTransitionException exception = catchThrowableOfType(
+                    SessionTransitionException.class, () -> session.apply(command));
 
-        assertThat(exception).isNotNull();
-        assertThat(exception.fromState()).isEqualTo(state);
-        assertThat(exception.rejectedCommand()).isEqualTo(command);
+            assertThat(exception).isNotNull();
+            assertThat(exception.fromState()).isEqualTo(state);
+            assertThat(exception.rejectedCommand()).isEqualTo(command);
+        } else {
+            InterviewSession result = session.apply(command);
+
+            assertThat(result.state()).isInstanceOf(expectedResultState);
+        }
     }
 
     @Test
@@ -204,43 +225,86 @@ class InterviewSessionTest {
     }
 
     @Test
-    @DisplayName("SessionState has exactly the four expected permitted implementations")
-    void sessionState_permittedSubclasses_areExactlyFourExpectedTypes() {
+    @DisplayName("SessionState has exactly the five expected permitted implementations")
+    void sessionState_permittedSubclasses_areExactlyFiveExpectedTypes() {
         assertThat(SessionState.class.getPermittedSubclasses()).containsExactlyInAnyOrder(
                 SessionState.Created.class,
                 SessionState.InProgress.class,
                 SessionState.AwaitingAnswer.class,
-                SessionState.Completed.class);
+                SessionState.Completed.class,
+                SessionState.Cancelled.class);
     }
 
     @Test
-    @DisplayName("SessionCommand has exactly the four expected permitted implementations")
-    void sessionCommand_permittedSubclasses_areExactlyFourExpectedTypes() {
+    @DisplayName("SessionCommand has exactly the five expected permitted implementations")
+    void sessionCommand_permittedSubclasses_areExactlyFiveExpectedTypes() {
         assertThat(SessionCommand.class.getPermittedSubclasses()).containsExactlyInAnyOrder(
                 SessionCommand.StartInterview.class,
                 SessionCommand.AskQuestion.class,
                 SessionCommand.SubmitAnswer.class,
-                SessionCommand.EndInterview.class);
+                SessionCommand.EndInterview.class,
+                SessionCommand.CancelInterview.class);
     }
 
-    private static Stream<Arguments> invalidTransitions() {
+    /**
+     * Every one of the 5 states x 5 commands = 25 combinations, each mapped to either
+     * the expected resulting state class (legal transition) or {@code null}, meaning
+     * the combination must throw {@link SessionTransitionException}.
+     */
+    private static Stream<Arguments> transitionMatrix() {
         return Stream.of(
-                Arguments.of(new SessionState.Created(),
+                // Created
+                legal(new SessionState.Created(), new SessionCommand.StartInterview(), SessionState.InProgress.class),
+                illegal(new SessionState.Created(),
                         new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
-                Arguments.of(new SessionState.Created(),
+                illegal(new SessionState.Created(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
+                illegal(new SessionState.Created(), new SessionCommand.EndInterview()),
+                legal(new SessionState.Created(), new SessionCommand.CancelInterview(), SessionState.Cancelled.class),
+
+                // InProgress
+                illegal(new SessionState.InProgress(), new SessionCommand.StartInterview()),
+                legal(new SessionState.InProgress(),
+                        new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME),
+                        SessionState.AwaitingAnswer.class),
+                illegal(new SessionState.InProgress(),
                         new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
-                Arguments.of(new SessionState.Created(), new SessionCommand.EndInterview()),
-                Arguments.of(new SessionState.InProgress(), new SessionCommand.StartInterview()),
-                Arguments.of(new SessionState.InProgress(),
-                        new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
-                Arguments.of(new SessionState.AwaitingAnswer(), new SessionCommand.StartInterview()),
-                Arguments.of(new SessionState.AwaitingAnswer(),
+                illegal(new SessionState.InProgress(), new SessionCommand.EndInterview()),
+                legal(new SessionState.InProgress(), new SessionCommand.CancelInterview(), SessionState.Cancelled.class),
+
+                // AwaitingAnswer
+                illegal(new SessionState.AwaitingAnswer(), new SessionCommand.StartInterview()),
+                illegal(new SessionState.AwaitingAnswer(),
                         new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
-                Arguments.of(new SessionState.Completed(), new SessionCommand.StartInterview()),
-                Arguments.of(new SessionState.Completed(),
+                legal(new SessionState.AwaitingAnswer(),
+                        new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME),
+                        SessionState.InProgress.class),
+                legal(new SessionState.AwaitingAnswer(), new SessionCommand.EndInterview(), SessionState.Completed.class),
+                legal(new SessionState.AwaitingAnswer(), new SessionCommand.CancelInterview(),
+                        SessionState.Cancelled.class),
+
+                // Completed (terminal)
+                illegal(new SessionState.Completed(), new SessionCommand.StartInterview()),
+                illegal(new SessionState.Completed(),
                         new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
-                Arguments.of(new SessionState.Completed(),
-                        new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME))
+                illegal(new SessionState.Completed(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
+                illegal(new SessionState.Completed(), new SessionCommand.EndInterview()),
+                illegal(new SessionState.Completed(), new SessionCommand.CancelInterview()),
+
+                // Cancelled (terminal)
+                illegal(new SessionState.Cancelled(), new SessionCommand.StartInterview()),
+                illegal(new SessionState.Cancelled(),
+                        new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
+                illegal(new SessionState.Cancelled(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
+                illegal(new SessionState.Cancelled(), new SessionCommand.EndInterview()),
+                illegal(new SessionState.Cancelled(), new SessionCommand.CancelInterview())
         );
+    }
+
+    private static Arguments legal(SessionState state, SessionCommand command, Class<? extends SessionState> expected) {
+        return Arguments.of(state, command, expected);
+    }
+
+    private static Arguments illegal(SessionState state, SessionCommand command) {
+        return Arguments.of(state, command, null);
     }
 }

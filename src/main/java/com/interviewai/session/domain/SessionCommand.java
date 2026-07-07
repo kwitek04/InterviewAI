@@ -29,4 +29,7 @@ public sealed interface SessionCommand {
 
     record EndInterview() implements SessionCommand {
     }
+
+    record CancelInterview() implements SessionCommand {
+    }
 }

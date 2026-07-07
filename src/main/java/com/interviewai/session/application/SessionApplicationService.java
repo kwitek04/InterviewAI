@@ -62,6 +62,32 @@ public class SessionApplicationService {
         return loadOrThrow(id);
     }
 
+    /**
+     * Ends the given session, marking the interview as completed.
+     *
+     * @throws SessionNotFoundException      if no session exists for the given id
+     * @throws com.interviewai.session.domain.SessionTransitionException if the session
+     *         is not currently awaiting an answer
+     */
+    public InterviewSession endInterview(SessionId id) {
+        InterviewSession session = loadOrThrow(id).apply(new SessionCommand.EndInterview());
+        sessionRepository.save(session);
+        return session;
+    }
+
+    /**
+     * Cancels the given session.
+     *
+     * @throws SessionNotFoundException      if no session exists for the given id
+     * @throws com.interviewai.session.domain.SessionTransitionException if the session
+     *         has already ended or been cancelled
+     */
+    public InterviewSession cancelInterview(SessionId id) {
+        InterviewSession session = loadOrThrow(id).apply(new SessionCommand.CancelInterview());
+        sessionRepository.save(session);
+        return session;
+    }
+
     private InterviewSession askNextQuestion(InterviewSession session) {
         String question = questionGenerator.generateNextQuestion(session.transcript());
         InterviewSession updated = session.apply(new SessionCommand.AskQuestion(question, clock.instant()));

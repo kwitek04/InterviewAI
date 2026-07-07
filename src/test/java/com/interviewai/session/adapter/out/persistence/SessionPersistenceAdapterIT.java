@@ -58,6 +58,7 @@ class SessionPersistenceAdapterIT {
                 .apply(new SessionCommand.StartInterview())
                 .apply(new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME))
                 .apply(new SessionCommand.SubmitAnswer("I am a backend developer", ANSWER_TIME))
+                .apply(new SessionCommand.AskQuestion("Describe a challenging project", QUESTION_TIME.plusSeconds(60)))
                 .apply(new SessionCommand.EndInterview());
 
         adapter.save(session);

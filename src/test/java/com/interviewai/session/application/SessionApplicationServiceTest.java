@@ -122,4 +122,75 @@ class SessionApplicationServiceTest {
 
         assertThatThrownBy(() -> service.getSession(id)).isInstanceOf(SessionNotFoundException.class);
     }
+
+    @Test
+    @DisplayName("endInterview transitions an awaiting-answer session to Completed and persists it")
+    void endInterview_whenAwaitingAnswer_transitionsToCompletedAndPersists() {
+        SessionId id = SessionId.generate();
+        InterviewSession awaitingAnswer = InterviewSession.create(id)
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
+
+        InterviewSession result = service.endInterview(id);
+
+        assertThat(result.state()).isEqualTo(new SessionState.Completed());
+        verify(sessionRepository).save(result);
+        verify(questionGenerator, never()).generateNextQuestion(any());
+    }
+
+    @Test
+    @DisplayName("endInterview for an unknown session throws SessionNotFoundException")
+    void endInterview_withUnknownSession_throwsSessionNotFoundException() {
+        SessionId id = SessionId.generate();
+        when(sessionRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.endInterview(id)).isInstanceOf(SessionNotFoundException.class);
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("endInterview when the session is not awaiting an answer throws SessionTransitionException")
+    void endInterview_whenNotAwaitingAnswer_throwsSessionTransitionException() {
+        SessionId id = SessionId.generate();
+        InterviewSession created = InterviewSession.create(id);
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(created));
+
+        assertThatThrownBy(() -> service.endInterview(id)).isInstanceOf(SessionTransitionException.class);
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("cancelInterview transitions a newly created session to Cancelled and persists it")
+    void cancelInterview_whenCreated_transitionsToCancelledAndPersists() {
+        SessionId id = SessionId.generate();
+        InterviewSession created = InterviewSession.create(id);
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(created));
+
+        InterviewSession result = service.cancelInterview(id);
+
+        assertThat(result.state()).isEqualTo(new SessionState.Cancelled());
+        verify(sessionRepository).save(result);
+    }
+
+    @Test
+    @DisplayName("cancelInterview for an unknown session throws SessionNotFoundException")
+    void cancelInterview_withUnknownSession_throwsSessionNotFoundException() {
+        SessionId id = SessionId.generate();
+        when(sessionRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.cancelInterview(id)).isInstanceOf(SessionNotFoundException.class);
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("cancelInterview on an already completed session throws SessionTransitionException")
+    void cancelInterview_whenAlreadyCompleted_throwsSessionTransitionException() {
+        SessionId id = SessionId.generate();
+        InterviewSession completed = new InterviewSession(id, new SessionState.Completed(), Transcript.empty());
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(completed));
+
+        assertThatThrownBy(() -> service.cancelInterview(id)).isInstanceOf(SessionTransitionException.class);
+        verify(sessionRepository, never()).save(any());
+    }
 }

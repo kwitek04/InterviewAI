@@ -16,4 +16,7 @@ public sealed interface SessionState {
 
     record Completed() implements SessionState {
     }
+
+    record Cancelled() implements SessionState {
+    }
 }

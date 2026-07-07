@@ -140,4 +140,77 @@ class SessionControllerIT {
                 .andExpect(jsonPath("$.transcript[0].role").value("INTERVIEWER"))
                 .andExpect(jsonPath("$.transcript[0].content").value("Tell me about yourself."));
     }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions/{id}/end returns 200 with the completed session")
+    void endSession_returnsCompletedState() throws Exception {
+        SessionId id = SessionId.generate();
+        InterviewSession completed = InterviewSession.create(id)
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW))
+                .apply(new SessionCommand.EndInterview());
+        when(sessionApplicationService.endInterview(id)).thenReturn(completed);
+
+        mockMvc.perform(post("/api/v1/sessions/{id}/end", id.value()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
+                .andExpect(jsonPath("$.state").value("COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions/{id}/end returns 409 when the session rejects the command")
+    void endSession_whenSessionRejectsCommand_returns409() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(sessionApplicationService.endInterview(any(SessionId.class)))
+                .thenThrow(new SessionTransitionException(new SessionState.Created(), new SessionCommand.EndInterview()));
+
+        mockMvc.perform(post("/api/v1/sessions/{id}/end", id))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions/{id}/end returns 404 when the session does not exist")
+    void endSession_whenNotFound_returns404() throws Exception {
+        SessionId id = SessionId.generate();
+        when(sessionApplicationService.endInterview(id)).thenThrow(new SessionNotFoundException(id));
+
+        mockMvc.perform(post("/api/v1/sessions/{id}/end", id.value()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions/{id}/cancel returns 200 with the cancelled session")
+    void cancelSession_returnsCancelledState() throws Exception {
+        SessionId id = SessionId.generate();
+        InterviewSession cancelled = InterviewSession.create(id)
+                .apply(new SessionCommand.CancelInterview());
+        when(sessionApplicationService.cancelInterview(id)).thenReturn(cancelled);
+
+        mockMvc.perform(post("/api/v1/sessions/{id}/cancel", id.value()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
+                .andExpect(jsonPath("$.state").value("CANCELLED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions/{id}/cancel returns 409 when the session rejects the command")
+    void cancelSession_whenSessionRejectsCommand_returns409() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(sessionApplicationService.cancelInterview(any(SessionId.class)))
+                .thenThrow(new SessionTransitionException(
+                        new SessionState.Completed(), new SessionCommand.CancelInterview()));
+
+        mockMvc.perform(post("/api/v1/sessions/{id}/cancel", id))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions/{id}/cancel returns 404 when the session does not exist")
+    void cancelSession_whenNotFound_returns404() throws Exception {
+        SessionId id = SessionId.generate();
+        when(sessionApplicationService.cancelInterview(id)).thenThrow(new SessionNotFoundException(id));
+
+        mockMvc.perform(post("/api/v1/sessions/{id}/cancel", id.value()))
+                .andExpect(status().isNotFound());
+    }
 }
