@@ -70,6 +70,26 @@ class OllamaQuestionGeneratorTest {
                 userMessage -> assertThat(userMessage.singleText()).isEqualTo("I am a backend engineer."));
     }
 
+    @Test
+    @DisplayName("strips leading assistant role labels from model output")
+    void generateNextQuestion_stripsAssistantPrefix() {
+        generator = new OllamaQuestionGenerator(chatModel);
+        when(chatModel.chat(anyList())).thenReturn(response(
+                "assistant\n\nCan you explain the difference between an iterative and recursive approach?"));
+
+        String question = generator.generateNextQuestion(Transcript.empty());
+
+        assertThat(question).isEqualTo(
+                "Can you explain the difference between an iterative and recursive approach?");
+    }
+
+    @Test
+    @DisplayName("sanitizeQuestion handles null and blank input")
+    void sanitizeQuestion_handlesNullAndBlank() {
+        assertThat(OllamaQuestionGenerator.sanitizeQuestion(null)).isNull();
+        assertThat(OllamaQuestionGenerator.sanitizeQuestion("   ")).isEmpty();
+    }
+
     private ChatResponse response(String text) {
         return ChatResponse.builder().aiMessage(AiMessage.from(text)).build();
     }

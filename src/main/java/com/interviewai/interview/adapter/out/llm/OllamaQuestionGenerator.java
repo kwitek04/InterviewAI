@@ -26,7 +26,8 @@ class OllamaQuestionGenerator implements QuestionGenerator {
             You are an expert technical interviewer conducting a live interview with a candidate.
             Ask exactly one clear, focused question at a time based on the conversation so far.
             Do not answer on the candidate's behalf and do not repeat a question already asked.
-            Respond with the question only, with no additional commentary or formatting.""";
+            Respond with the question text only. Do not prefix your response with role labels
+            such as "assistant" or "interviewer", and do not add commentary or formatting.""";
 
     private final ChatModel chatModel;
 
@@ -36,7 +37,18 @@ class OllamaQuestionGenerator implements QuestionGenerator {
 
     @Override
     public String generateNextQuestion(Transcript transcript) {
-        return chatModel.chat(toChatMessages(transcript)).aiMessage().text();
+        String raw = chatModel.chat(toChatMessages(transcript)).aiMessage().text();
+        return sanitizeQuestion(raw);
+    }
+
+    static String sanitizeQuestion(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        return raw.stripLeading()
+                .replaceFirst("(?is)^(assistant|interviewer)\\s*:?\\s*(\\r?\\n)+", "")
+                .replaceFirst("(?is)^(assistant|interviewer)\\s*:?\\s*", "")
+                .strip();
     }
 
     private List<ChatMessage> toChatMessages(Transcript transcript) {
