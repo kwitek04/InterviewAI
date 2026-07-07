@@ -21,6 +21,7 @@
         <java.version>21</java.version>
         <spring-modulith.version>2.1.0</spring-modulith.version>
         <langchain4j.version>1.17.1</langchain4j.version>
+        <springdoc.version>3.0.3</springdoc.version>
     </properties>
 
     <dependencyManagement>
@@ -134,6 +135,11 @@
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-ollama</artifactId>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
     </dependencies>
 
