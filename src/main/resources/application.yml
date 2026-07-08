@@ -22,6 +22,7 @@ interviewai:
     ollama:
       base-url: http://localhost:11434
       model-name: llama3.2:3b
+      embedding-model-name: nomic-embed-text
       timeout: 60s
   storage:
     s3:
