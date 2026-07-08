@@ -32,7 +32,8 @@ services:
       retries: 10
 
   localstack:
-    image: localstack/localstack:latest
+    # Pinned to the last free Community-edition release. Do not move to :latest.
+    image: localstack/localstack:4
     container_name: interviewai-localstack
     environment:
       SERVICES: s3,sqs
