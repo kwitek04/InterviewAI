@@ -26,10 +26,27 @@ async function handleResponse(response) {
 }
 
 /**
- * Starts a new interview session and returns { sessionId, question }.
+ * Uploads a CV PDF with the job offer text. Returns { cvId, fileName, characterCount, chunkCount }.
  */
-export function startInterview() {
-  return fetch(`${BASE_URL}/api/v1/sessions`, { method: 'POST' }).then(handleResponse);
+export function uploadCv(file, jobOffer) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const params = new URLSearchParams({ jobOffer });
+  return fetch(`${BASE_URL}/api/v1/cv?${params}`, {
+    method: 'POST',
+    body: formData,
+  }).then(handleResponse);
+}
+
+/**
+ * Starts a new interview session grounded in the given CV. Returns { sessionId, question }.
+ */
+export function startInterview(cvId) {
+  return fetch(`${BASE_URL}/api/v1/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cvId }),
+  }).then(handleResponse);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import StartScreen from './components/StartScreen.jsx';
 import ChatScreen from './components/ChatScreen.jsx';
-import { startInterview, submitAnswer, ApiError } from './api/interviewApi.js';
+import { uploadCv, startInterview, submitAnswer, ApiError } from './api/interviewApi.js';
 import './App.css';
 
 let messageIdSeq = 0;
@@ -22,13 +22,16 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(async ({ file, jobOffer }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await startInterview();
-      setSessionId(response.sessionId);
-      setMessages([{ id: nextMessageId(), role: 'INTERVIEWER', content: response.question }]);
+      const cvResponse = await uploadCv(file, jobOffer);
+      const sessionResponse = await startInterview(cvResponse.cvId);
+      setSessionId(sessionResponse.sessionId);
+      setMessages([
+        { id: nextMessageId(), role: 'INTERVIEWER', content: sessionResponse.question },
+      ]);
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
