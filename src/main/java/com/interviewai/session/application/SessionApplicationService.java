@@ -111,8 +111,8 @@ public class SessionApplicationService {
     }
 
     private InterviewContext buildInterviewContext(CvId cvId, InterviewSession session) {
-        String query = lastCandidateAnswer(session).orElseGet(() ->
-                cvRetrievalService.retrieveContext(cvId, "", 4).jobOffer());
+        String query = lastCandidateAnswer(session)
+                .orElseGet(() -> cvRetrievalService.retrieveJobOffer(cvId));
         return toInterviewContext(cvRetrievalService.retrieveContext(cvId, query, 4));
     }
 

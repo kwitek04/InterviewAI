@@ -109,7 +109,24 @@ class CvApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("uploading a valid PDF stores it under key cv/{cvId}.pdf")
+    @DisplayName("uploading plain text skips PDF validation and extraction")
+    void uploadCv_withPlainText_skipsPdfValidationAndExtraction() {
+        String plainText = "Jane Doe led a Kafka migration at Allegro.";
+        when(fileStorage.store(anyString(), any(byte[].class), eq("text/plain")))
+                .thenReturn(new StoredFile("ignored", plainText.length()));
+        when(textChunker.chunk(plainText)).thenReturn(List.of(new TextChunk(0, plainText)));
+        when(embeddingGenerator.embedAll(List.of(plainText))).thenReturn(List.of(new float[]{0.3f}));
+
+        CvUploadResult result = service.uploadCv(
+                CvUploadCommand.fromPlainText("cv.txt", plainText, "Backend role with Kafka"));
+
+        assertThat(result.document().extractedText()).isEqualTo(plainText);
+        assertThat(result.chunkCount()).isEqualTo(1);
+        verify(cvTextExtractor, never()).extractText(any());
+        verify(cvChunkStore).saveAll(eq(result.document().id()), any());
+    }
+
+    @Test
     void uploadCv_storesUnderExpectedKeyFormat() {
         when(fileStorage.store(anyString(), eq(VALID_PDF), eq("application/pdf")))
                 .thenReturn(new StoredFile("ignored", VALID_PDF.length));

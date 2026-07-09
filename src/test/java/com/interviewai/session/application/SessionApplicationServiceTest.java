@@ -211,8 +211,7 @@ class SessionApplicationServiceTest {
     @DisplayName("starting with cvId retrieves context using job offer on first question")
     void startInterview_withCvId_retrievesContextWithJobOffer() {
         CvId cvId = new CvId(UUID.randomUUID());
-        when(cvRetrievalService.retrieveContext(cvId, "", 4))
-                .thenReturn(new CvRetrievalService.CvContext("Java + Spring Boot", List.of("Allegro project")));
+        when(cvRetrievalService.retrieveJobOffer(cvId)).thenReturn("Java + Spring Boot");
         when(cvRetrievalService.retrieveContext(cvId, "Java + Spring Boot", 4))
                 .thenReturn(new CvRetrievalService.CvContext("Java + Spring Boot", List.of("Allegro project")));
         when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about Allegro.");
@@ -220,7 +219,7 @@ class SessionApplicationServiceTest {
         InterviewSession session = service.startInterview(Optional.of(cvId));
 
         assertThat(session.cvId()).contains(cvId);
-        verify(cvRetrievalService).retrieveContext(cvId, "", 4);
+        verify(cvRetrievalService).retrieveJobOffer(cvId);
         verify(cvRetrievalService).retrieveContext(cvId, "Java + Spring Boot", 4);
         verify(questionGenerator).generateNextQuestion(any(), argThat(context ->
                 context.jobOffer().equals("Java + Spring Boot") && context.cvExcerpts().contains("Allegro project")));

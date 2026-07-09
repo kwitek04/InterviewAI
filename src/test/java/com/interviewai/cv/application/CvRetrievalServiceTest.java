@@ -72,7 +72,26 @@ class CvRetrievalServiceTest {
     }
 
     @Test
-    @DisplayName("retrieveContext for an unknown CV throws CvNotFoundException")
+    @DisplayName("retrieveJobOffer returns the stored job offer text")
+    void retrieveJobOffer_withKnownCv_returnsJobOffer() {
+        CvId cvId = CvId.generate();
+        CvDocument document = new CvDocument(
+                cvId, "cv.pdf", "cv/" + cvId.value() + ".pdf", "text", "Backend engineer role", UPLOADED_AT);
+        when(cvDocumentRepository.findById(cvId)).thenReturn(Optional.of(document));
+
+        assertThat(service.retrieveJobOffer(cvId)).isEqualTo("Backend engineer role");
+    }
+
+    @Test
+    @DisplayName("retrieveJobOffer for an unknown CV throws CvNotFoundException")
+    void retrieveJobOffer_withUnknownCv_throwsCvNotFoundException() {
+        CvId cvId = CvId.generate();
+        when(cvDocumentRepository.findById(cvId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.retrieveJobOffer(cvId)).isInstanceOf(CvNotFoundException.class);
+    }
+
+    @Test
     void retrieveContext_withUnknownCv_throwsCvNotFoundException() {
         CvId cvId = CvId.generate();
         when(cvDocumentRepository.findById(cvId)).thenReturn(Optional.empty());

@@ -66,17 +66,50 @@ public class CvApplicationService {
      * @throws CvParsingException       if the document's text cannot be extracted
      */
     public CvUploadResult uploadCv(String fileName, byte[] pdfContent, String jobOffer) {
-        validate(fileName, pdfContent, jobOffer);
+        return uploadCv(CvUploadCommand.fromPdf(fileName, pdfContent, jobOffer));
+    }
+
+    /**
+     * Ingests a CV from either a PDF upload or pre-extracted plain text.
+     * When {@code plainText} is present, PDF validation and extraction are skipped.
+     */
+    public CvUploadResult uploadCv(CvUploadCommand command) {
+        if (command.plainText() != null && !command.plainText().isBlank()) {
+            return ingestCvText(command.fileName(), command.plainText(), command.jobOffer(), ".txt", "text/plain");
+        }
+        validate(command.fileName(), command.pdfContent(), command.jobOffer());
 
         CvId cvId = CvId.generate();
         String storageKey = "cv/" + cvId.value() + ".pdf";
-        fileStorage.store(storageKey, pdfContent, "application/pdf");
+        fileStorage.store(storageKey, command.pdfContent(), "application/pdf");
 
-        String extractedText = cvTextExtractor.extractText(pdfContent);
+        String extractedText = cvTextExtractor.extractText(command.pdfContent());
         if (extractedText.isBlank()) {
             throw new InvalidCvUploadException("No text could be extracted from the uploaded document");
         }
 
+        return persistAndEmbed(cvId, command.fileName(), storageKey, extractedText, command.jobOffer());
+    }
+
+    private CvUploadResult ingestCvText(
+            String fileName, String plainText, String jobOffer, String extension, String contentType) {
+        if (fileName == null || fileName.isBlank()) {
+            throw new InvalidCvUploadException("fileName must not be blank");
+        }
+        if (jobOffer == null || jobOffer.isBlank()) {
+            throw new InvalidCvUploadException("jobOffer must not be blank");
+        }
+
+        CvId cvId = CvId.generate();
+        String storageKey = "cv/" + cvId.value() + extension;
+        byte[] content = plainText.getBytes(StandardCharsets.UTF_8);
+        fileStorage.store(storageKey, content, contentType);
+
+        return persistAndEmbed(cvId, fileName, storageKey, plainText, jobOffer);
+    }
+
+    private CvUploadResult persistAndEmbed(
+            CvId cvId, String fileName, String storageKey, String extractedText, String jobOffer) {
         CvDocument document = new CvDocument(cvId, fileName, storageKey, extractedText, jobOffer, clock.instant());
         cvDocumentRepository.save(document);
 

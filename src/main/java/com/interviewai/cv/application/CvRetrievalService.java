@@ -37,6 +37,17 @@ public class CvRetrievalService {
     }
 
     /**
+     * Returns the stored job offer for the given CV.
+     *
+     * @throws CvNotFoundException if no CV document exists for the given id
+     */
+    public String retrieveJobOffer(CvId cvId) {
+        return cvDocumentRepository.findById(cvId)
+                .orElseThrow(() -> new CvNotFoundException(cvId))
+                .jobOffer();
+    }
+
+    /**
      * Returns the job offer and the CV excerpts most similar to the given query.
      *
      * @throws CvNotFoundException if no CV document exists for the given id
