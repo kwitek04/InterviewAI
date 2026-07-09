@@ -1,8 +1,12 @@
 package com.interviewai.cv.adapter.in.web;
 
+import com.interviewai.cv.application.port.out.CvChunkStore;
 import com.interviewai.cv.application.port.out.CvTextExtractor;
+import com.interviewai.cv.application.port.out.EmbeddingGenerator;
 import com.interviewai.cv.application.port.out.FileStorage;
 import com.interviewai.cv.application.port.out.StoredFile;
+import com.interviewai.cv.domain.TextChunk;
+import com.interviewai.cv.domain.TextChunker;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,8 +23,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -54,12 +60,24 @@ class CvControllerIT {
     @MockitoBean
     private CvTextExtractor cvTextExtractor;
 
+    @MockitoBean
+    private TextChunker textChunker;
+
+    @MockitoBean
+    private EmbeddingGenerator embeddingGenerator;
+
+    @MockitoBean
+    private CvChunkStore cvChunkStore;
+
     @Test
-    @DisplayName("POST /api/v1/cv with a valid PDF and job offer returns 201 with the cv id and character count")
+    @DisplayName("POST /api/v1/cv with a valid PDF and job offer returns 201 with the cv id, character count, and chunk count")
     void uploadCv_withValidPdfAndJobOffer_returns201() throws Exception {
         when(fileStorage.store(anyString(), any(byte[].class), anyString()))
                 .thenReturn(new StoredFile("cv/some-id.pdf", VALID_PDF.length));
         when(cvTextExtractor.extractText(VALID_PDF)).thenReturn("Jane Doe, Senior Backend Engineer");
+        when(textChunker.chunk("Jane Doe, Senior Backend Engineer"))
+                .thenReturn(List.of(new TextChunk(0, "Jane Doe, Senior Backend Engineer")));
+        when(embeddingGenerator.embedAll(anyList())).thenReturn(List.of(new float[]{0.1f, 0.2f}));
 
         MockMultipartFile file = new MockMultipartFile("file", "cv.pdf", "application/pdf", VALID_PDF);
 
@@ -67,6 +85,7 @@ class CvControllerIT {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.fileName").value("cv.pdf"))
                 .andExpect(jsonPath("$.characterCount").value("Jane Doe, Senior Backend Engineer".length()))
+                .andExpect(jsonPath("$.chunkCount").value(1))
                 .andExpect(jsonPath("$.cvId").exists());
     }
 

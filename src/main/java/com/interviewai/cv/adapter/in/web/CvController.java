@@ -1,7 +1,7 @@
 package com.interviewai.cv.adapter.in.web;
 
 import com.interviewai.cv.application.CvApplicationService;
-import com.interviewai.cv.domain.CvDocument;
+import com.interviewai.cv.application.CvUploadResult;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,8 +31,8 @@ class CvController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<CvUploadResponse> uploadCv(
             @RequestParam("file") MultipartFile file, @RequestParam("jobOffer") String jobOffer) {
-        CvDocument document = cvApplicationService.uploadCv(file.getOriginalFilename(), readBytes(file), jobOffer);
-        return ResponseEntity.status(HttpStatus.CREATED).body(CvUploadResponse.from(document));
+        CvUploadResult result = cvApplicationService.uploadCv(file.getOriginalFilename(), readBytes(file), jobOffer);
+        return ResponseEntity.status(HttpStatus.CREATED).body(CvUploadResponse.from(result));
     }
 
     private byte[] readBytes(MultipartFile file) {

@@ -1,10 +1,15 @@
 package com.interviewai.cv.application;
 
+import com.interviewai.cv.application.port.out.CvChunkStore;
 import com.interviewai.cv.application.port.out.CvDocumentRepository;
 import com.interviewai.cv.application.port.out.CvTextExtractor;
+import com.interviewai.cv.application.port.out.EmbeddedChunk;
+import com.interviewai.cv.application.port.out.EmbeddingGenerator;
 import com.interviewai.cv.application.port.out.FileStorage;
 import com.interviewai.cv.application.port.out.StoredFile;
 import com.interviewai.cv.domain.CvDocument;
+import com.interviewai.cv.domain.TextChunk;
+import com.interviewai.cv.domain.TextChunker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,13 +25,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -37,6 +45,7 @@ class CvApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-01-01T10:00:00Z");
     private static final byte[] VALID_PDF = "%PDF-1.4 fake cv content".getBytes(StandardCharsets.UTF_8);
+    private static final String EXTRACTED_TEXT = "Jane Doe, Senior Backend Engineer";
 
     @Mock
     private FileStorage fileStorage;
@@ -47,28 +56,56 @@ class CvApplicationServiceTest {
     @Mock
     private CvDocumentRepository cvDocumentRepository;
 
+    @Mock
+    private TextChunker textChunker;
+
+    @Mock
+    private EmbeddingGenerator embeddingGenerator;
+
+    @Mock
+    private CvChunkStore cvChunkStore;
+
     private CvApplicationService service;
 
     @BeforeEach
     void setUp() {
         service = new CvApplicationService(
-                fileStorage, cvTextExtractor, cvDocumentRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+                fileStorage,
+                cvTextExtractor,
+                cvDocumentRepository,
+                textChunker,
+                embeddingGenerator,
+                cvChunkStore,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("uploading a valid PDF stores it, extracts its text, and persists the document")
-    void uploadCv_withValidPdf_storesExtractsAndPersists() {
+    @DisplayName("uploading a valid PDF stores it, extracts its text, persists the document, and embeds its chunks")
+    void uploadCv_withValidPdf_storesExtractsPersistsAndEmbedsChunks() {
         when(fileStorage.store(anyString(), eq(VALID_PDF), eq("application/pdf")))
                 .thenReturn(new StoredFile("ignored", VALID_PDF.length));
-        when(cvTextExtractor.extractText(VALID_PDF)).thenReturn("Jane Doe, Senior Backend Engineer");
+        when(cvTextExtractor.extractText(VALID_PDF)).thenReturn(EXTRACTED_TEXT);
+        when(textChunker.chunk(EXTRACTED_TEXT)).thenReturn(List.of(
+                new TextChunk(0, "Jane Doe, Senior Backend Engineer")));
+        when(embeddingGenerator.embedAll(List.of("Jane Doe, Senior Backend Engineer")))
+                .thenReturn(List.of(new float[]{0.1f, 0.2f}));
 
-        CvDocument document = service.uploadCv("cv.pdf", VALID_PDF, "We are hiring a backend engineer.");
+        CvUploadResult result = service.uploadCv("cv.pdf", VALID_PDF, "We are hiring a backend engineer.");
 
-        assertThat(document.fileName()).isEqualTo("cv.pdf");
-        assertThat(document.extractedText()).isEqualTo("Jane Doe, Senior Backend Engineer");
-        assertThat(document.jobOffer()).isEqualTo("We are hiring a backend engineer.");
-        assertThat(document.uploadedAt()).isEqualTo(NOW);
-        verify(cvDocumentRepository).save(document);
+        assertThat(result.chunkCount()).isEqualTo(1);
+        assertThat(result.document().fileName()).isEqualTo("cv.pdf");
+        assertThat(result.document().extractedText()).isEqualTo(EXTRACTED_TEXT);
+        assertThat(result.document().jobOffer()).isEqualTo("We are hiring a backend engineer.");
+        assertThat(result.document().uploadedAt()).isEqualTo(NOW);
+        verify(cvDocumentRepository).save(result.document());
+
+        ArgumentCaptor<List<EmbeddedChunk>> chunksCaptor = ArgumentCaptor.forClass(List.class);
+        verify(cvChunkStore).saveAll(eq(result.document().id()), chunksCaptor.capture());
+        assertThat(chunksCaptor.getValue()).hasSize(1);
+        EmbeddedChunk savedChunk = chunksCaptor.getValue().getFirst();
+        assertThat(savedChunk.index()).isZero();
+        assertThat(savedChunk.content()).isEqualTo("Jane Doe, Senior Backend Engineer");
+        assertThat(savedChunk.embedding()).containsExactly(0.1f, 0.2f);
     }
 
     @Test
@@ -77,13 +114,32 @@ class CvApplicationServiceTest {
         when(fileStorage.store(anyString(), eq(VALID_PDF), eq("application/pdf")))
                 .thenReturn(new StoredFile("ignored", VALID_PDF.length));
         when(cvTextExtractor.extractText(VALID_PDF)).thenReturn("Jane Doe");
+        when(textChunker.chunk("Jane Doe")).thenReturn(List.of(new TextChunk(0, "Jane Doe")));
+        when(embeddingGenerator.embedAll(List.of("Jane Doe"))).thenReturn(List.of(new float[]{0.5f}));
 
-        CvDocument document = service.uploadCv("cv.pdf", VALID_PDF, "job offer");
+        CvUploadResult result = service.uploadCv("cv.pdf", VALID_PDF, "job offer");
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(fileStorage).store(keyCaptor.capture(), eq(VALID_PDF), eq("application/pdf"));
-        assertThat(keyCaptor.getValue()).isEqualTo("cv/" + document.id().value() + ".pdf");
-        assertThat(document.storageKey()).isEqualTo(keyCaptor.getValue());
+        assertThat(keyCaptor.getValue()).isEqualTo("cv/" + result.document().id().value() + ".pdf");
+        assertThat(result.document().storageKey()).isEqualTo(keyCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("an embedding failure during upload propagates without persisting chunks")
+    void uploadCv_whenEmbeddingFails_propagatesExceptionWithoutSavingChunks() {
+        when(fileStorage.store(anyString(), eq(VALID_PDF), eq("application/pdf")))
+                .thenReturn(new StoredFile("ignored", VALID_PDF.length));
+        when(cvTextExtractor.extractText(VALID_PDF)).thenReturn(EXTRACTED_TEXT);
+        when(textChunker.chunk(EXTRACTED_TEXT)).thenReturn(List.of(new TextChunk(0, EXTRACTED_TEXT)));
+        doThrow(new RuntimeException("embedding failed")).when(embeddingGenerator).embedAll(anyList());
+
+        assertThatThrownBy(() -> service.uploadCv("cv.pdf", VALID_PDF, "job offer"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("embedding failed");
+
+        verify(cvDocumentRepository).save(any(CvDocument.class));
+        verify(cvChunkStore, never()).saveAll(any(), any());
     }
 
     static Stream<Arguments> invalidUploads() {
@@ -106,7 +162,7 @@ class CvApplicationServiceTest {
         assertThatThrownBy(() -> service.uploadCv(fileName, content, jobOffer))
                 .isInstanceOf(InvalidCvUploadException.class);
 
-        verifyNoInteractions(fileStorage, cvTextExtractor, cvDocumentRepository);
+        verifyNoInteractions(fileStorage, cvTextExtractor, cvDocumentRepository, textChunker, embeddingGenerator, cvChunkStore);
     }
 
     @Test
@@ -120,5 +176,6 @@ class CvApplicationServiceTest {
                 .isInstanceOf(InvalidCvUploadException.class);
 
         verify(cvDocumentRepository, never()).save(any());
+        verifyNoInteractions(textChunker, embeddingGenerator, cvChunkStore);
     }
 }

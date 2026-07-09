@@ -1,5 +1,6 @@
 package com.interviewai.cv.adapter.in.web;
 
+import com.interviewai.cv.application.CvNotFoundException;
 import com.interviewai.cv.application.CvParsingException;
 import com.interviewai.cv.application.InvalidCvUploadException;
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @RestControllerAdvice
 class CvExceptionHandler {
+
+    @ExceptionHandler(CvNotFoundException.class)
+    ProblemDetail handleCvNotFound(CvNotFoundException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
 
     @ExceptionHandler(InvalidCvUploadException.class)
     ProblemDetail handleInvalidUpload(InvalidCvUploadException exception) {
