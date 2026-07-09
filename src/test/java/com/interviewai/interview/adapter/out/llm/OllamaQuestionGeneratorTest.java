@@ -1,5 +1,6 @@
 package com.interviewai.interview.adapter.out.llm;
 
+import com.interviewai.interview.application.port.out.InterviewContext;
 import com.interviewai.session.domain.Message;
 import com.interviewai.session.domain.MessageRole;
 import com.interviewai.session.domain.Transcript;
@@ -40,13 +41,13 @@ class OllamaQuestionGeneratorTest {
         generator = new OllamaQuestionGenerator(chatModel);
         when(chatModel.chat(anyList())).thenReturn(response("Tell me about yourself."));
 
-        String question = generator.generateNextQuestion(Transcript.empty());
+        String question = generator.generateNextQuestion(Transcript.empty(), InterviewContext.empty());
 
         assertThat(question).isEqualTo("Tell me about yourself.");
         List<ChatMessage> sent = captureSentMessages();
         assertThat(sent).hasSize(1);
         assertThat(sent.get(0)).isInstanceOf(SystemMessage.class);
-        assertThat(((SystemMessage) sent.get(0)).text()).isEqualTo(OllamaQuestionGenerator.SYSTEM_PROMPT);
+        assertThat(((SystemMessage) sent.get(0)).text()).contains("Ask exactly one clear, focused question at a time");
     }
 
     @Test
@@ -58,7 +59,7 @@ class OllamaQuestionGeneratorTest {
                 .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself.", NOW))
                 .append(new Message(MessageRole.CANDIDATE, "I am a backend engineer.", NOW));
 
-        String question = generator.generateNextQuestion(transcript);
+        String question = generator.generateNextQuestion(transcript, InterviewContext.empty());
 
         assertThat(question).isEqualTo("What is your experience with Spring Boot?");
         List<ChatMessage> sent = captureSentMessages();
@@ -77,7 +78,7 @@ class OllamaQuestionGeneratorTest {
         when(chatModel.chat(anyList())).thenReturn(response(
                 "assistant\n\nCan you explain the difference between an iterative and recursive approach?"));
 
-        String question = generator.generateNextQuestion(Transcript.empty());
+        String question = generator.generateNextQuestion(Transcript.empty(), InterviewContext.empty());
 
         assertThat(question).isEqualTo(
                 "Can you explain the difference between an iterative and recursive approach?");
@@ -88,6 +89,21 @@ class OllamaQuestionGeneratorTest {
     void sanitizeQuestion_handlesNullAndBlank() {
         assertThat(OllamaQuestionGenerator.sanitizeQuestion(null)).isNull();
         assertThat(OllamaQuestionGenerator.sanitizeQuestion("   ")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("includes CV excerpt in system message when context is provided")
+    void generateNextQuestion_withContext_embedsExcerptsInSystemPrompt() {
+        generator = new OllamaQuestionGenerator(chatModel);
+        when(chatModel.chat(anyList())).thenReturn(response("Can you tell me more about your Allegro migration?"));
+
+        generator.generateNextQuestion(
+                Transcript.empty(),
+                new InterviewContext("Senior Java role", List.of("Migrated Allegro services to AWS")));
+
+        List<ChatMessage> sent = captureSentMessages();
+        assertThat(sent.getFirst()).isInstanceOf(SystemMessage.class);
+        assertThat(((SystemMessage) sent.getFirst()).text()).contains("Migrated Allegro services to AWS");
     }
 
     private ChatResponse response(String text) {

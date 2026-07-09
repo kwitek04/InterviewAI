@@ -1,8 +1,10 @@
 package com.interviewai.session.domain;
 
+import com.interviewai.shared.CvId;
 import com.interviewai.shared.SessionId;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Aggregate root modeling the lifecycle of a single AI-driven interview conversation.
@@ -11,7 +13,7 @@ import java.util.Objects;
  * It either returns a new instance reflecting the transition or throws
  * {@link SessionTransitionException} when the command is not valid for the current state.
  */
-public record InterviewSession(SessionId id, SessionState state, Transcript transcript) {
+public record InterviewSession(SessionId id, CvId cvIdValue, SessionState state, Transcript transcript) {
 
     public InterviewSession {
         Objects.requireNonNull(id, "id must not be null");
@@ -20,7 +22,15 @@ public record InterviewSession(SessionId id, SessionState state, Transcript tran
     }
 
     public static InterviewSession create(SessionId id) {
-        return new InterviewSession(id, new SessionState.Created(), Transcript.empty());
+        return new InterviewSession(id, null, new SessionState.Created(), Transcript.empty());
+    }
+
+    public static InterviewSession create(SessionId id, CvId cvId) {
+        return new InterviewSession(id, cvId, new SessionState.Created(), Transcript.empty());
+    }
+
+    public Optional<CvId> cvId() {
+        return Optional.ofNullable(cvIdValue);
     }
 
     /**
@@ -76,11 +86,11 @@ public record InterviewSession(SessionId id, SessionState state, Transcript tran
     }
 
     private InterviewSession withState(SessionState newState) {
-        return new InterviewSession(id, newState, transcript);
+        return new InterviewSession(id, cvIdValue, newState, transcript);
     }
 
     private InterviewSession withStateAndMessage(SessionState newState, Message message) {
-        return new InterviewSession(id, newState, transcript.append(message));
+        return new InterviewSession(id, cvIdValue, newState, transcript.append(message));
     }
 
     private SessionTransitionException rejectedBy(SessionCommand command) {

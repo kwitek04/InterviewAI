@@ -36,7 +36,7 @@ class InterviewSessionTest {
     @DisplayName("asking a question moves an in-progress session to AwaitingAnswer and appends an interviewer message")
     void apply_askQuestionOnInProgress_transitionsToAwaitingAnswerAndAppendsInterviewerMessage() {
         InterviewSession inProgress = new InterviewSession(
-                SessionId.generate(), new SessionState.InProgress(), Transcript.empty());
+                SessionId.generate(), null, new SessionState.InProgress(), Transcript.empty());
 
         InterviewSession result = inProgress.apply(
                 new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME));
@@ -52,7 +52,7 @@ class InterviewSessionTest {
         Transcript existing = Transcript.empty()
                 .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
         InterviewSession awaitingAnswer = new InterviewSession(
-                SessionId.generate(), new SessionState.AwaitingAnswer(), existing);
+                SessionId.generate(), null, new SessionState.AwaitingAnswer(), existing);
 
         InterviewSession result = awaitingAnswer.apply(
                 new SessionCommand.SubmitAnswer("I am a backend developer", ANSWER_TIME));
@@ -69,7 +69,7 @@ class InterviewSessionTest {
         Transcript existing = Transcript.empty()
                 .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
         InterviewSession awaitingAnswer = new InterviewSession(
-                SessionId.generate(), new SessionState.AwaitingAnswer(), existing);
+                SessionId.generate(), null, new SessionState.AwaitingAnswer(), existing);
 
         InterviewSession result = awaitingAnswer.apply(new SessionCommand.EndInterview());
 
@@ -93,7 +93,7 @@ class InterviewSessionTest {
         Transcript existing = Transcript.empty()
                 .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
         InterviewSession inProgress = new InterviewSession(
-                SessionId.generate(), new SessionState.InProgress(), existing);
+                SessionId.generate(), null, new SessionState.InProgress(), existing);
 
         InterviewSession result = inProgress.apply(new SessionCommand.CancelInterview());
 
@@ -107,7 +107,7 @@ class InterviewSessionTest {
         Transcript existing = Transcript.empty()
                 .append(new Message(MessageRole.INTERVIEWER, "Tell me about yourself", QUESTION_TIME));
         InterviewSession awaitingAnswer = new InterviewSession(
-                SessionId.generate(), new SessionState.AwaitingAnswer(), existing);
+                SessionId.generate(), null, new SessionState.AwaitingAnswer(), existing);
 
         InterviewSession result = awaitingAnswer.apply(new SessionCommand.CancelInterview());
 
@@ -153,7 +153,7 @@ class InterviewSessionTest {
     @DisplayName("every state and command combination transitions to the expected state or throws SessionTransitionException")
     void apply_everyStateAndCommandCombination_transitionsAsExpectedOrThrows(
             SessionState state, SessionCommand command, Class<? extends SessionState> expectedResultState) {
-        InterviewSession session = new InterviewSession(SessionId.generate(), state, Transcript.empty());
+        InterviewSession session = new InterviewSession(SessionId.generate(), null, state, Transcript.empty());
 
         if (expectedResultState == null) {
             SessionTransitionException exception = catchThrowableOfType(
@@ -193,7 +193,7 @@ class InterviewSessionTest {
     @DisplayName("appending a message to the transcript never mutates the previous transcript instance")
     void apply_appendingMessage_doesNotMutatePreviousTranscriptInstance() {
         InterviewSession inProgress = new InterviewSession(
-                SessionId.generate(), new SessionState.InProgress(), Transcript.empty());
+                SessionId.generate(), null, new SessionState.InProgress(), Transcript.empty());
         Transcript before = inProgress.transcript();
 
         inProgress.apply(new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME));
@@ -207,8 +207,8 @@ class InterviewSessionTest {
         SessionId id = SessionId.generate();
         Transcript transcript = Transcript.empty();
 
-        InterviewSession first = new InterviewSession(id, new SessionState.InProgress(), transcript);
-        InterviewSession second = new InterviewSession(id, new SessionState.InProgress(), transcript);
+        InterviewSession first = new InterviewSession(id, null, new SessionState.InProgress(), transcript);
+        InterviewSession second = new InterviewSession(id, null, new SessionState.InProgress(), transcript);
 
         assertThat(first).isEqualTo(second);
     }
@@ -218,8 +218,8 @@ class InterviewSessionTest {
     void equals_sessionsWithDifferentIdButSameStateAndTranscript_areNotEqual() {
         Transcript transcript = Transcript.empty();
 
-        InterviewSession first = new InterviewSession(SessionId.generate(), new SessionState.InProgress(), transcript);
-        InterviewSession second = new InterviewSession(SessionId.generate(), new SessionState.InProgress(), transcript);
+        InterviewSession first = new InterviewSession(SessionId.generate(), null, new SessionState.InProgress(), transcript);
+        InterviewSession second = new InterviewSession(SessionId.generate(), null, new SessionState.InProgress(), transcript);
 
         assertThat(first).isNotEqualTo(second);
     }

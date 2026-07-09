@@ -27,6 +27,9 @@ class InterviewSessionEntity {
     @Column(nullable = false, length = 32)
     private String state;
 
+    @Column(name = "cv_id")
+    private UUID cvId;
+
     @OneToMany(mappedBy = "session", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     private List<MessageEntity> messages = new ArrayList<>();
@@ -59,6 +62,14 @@ class InterviewSessionEntity {
 
     String getState() {
         return state;
+    }
+
+    UUID getCvId() {
+        return cvId;
+    }
+
+    void setCvId(UUID cvId) {
+        this.cvId = cvId;
     }
 
     void setState(String state) {
