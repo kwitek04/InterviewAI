@@ -1,5 +1,7 @@
 package com.interviewai.interview.adapter.out.llm;
 
+import com.interviewai.interview.application.InterviewPromptAssembler;
+import com.interviewai.interview.application.port.out.InterviewContext;
 import com.interviewai.interview.application.port.out.QuestionGenerator;
 import com.interviewai.session.domain.Message;
 import com.interviewai.session.domain.Transcript;
@@ -22,22 +24,17 @@ import java.util.List;
 @Component
 class OllamaQuestionGenerator implements QuestionGenerator {
 
-    static final String SYSTEM_PROMPT = """
-            You are an expert technical interviewer conducting a live interview with a candidate.
-            Ask exactly one clear, focused question at a time based on the conversation so far.
-            Do not answer on the candidate's behalf and do not repeat a question already asked.
-            Respond with the question text only. Do not prefix your response with role labels
-            such as "assistant" or "interviewer", and do not add commentary or formatting.""";
-
     private final ChatModel chatModel;
+    private final InterviewPromptAssembler promptAssembler;
 
     OllamaQuestionGenerator(ChatModel chatModel) {
         this.chatModel = chatModel;
+        this.promptAssembler = new InterviewPromptAssembler();
     }
 
     @Override
-    public String generateNextQuestion(Transcript transcript) {
-        String raw = chatModel.chat(toChatMessages(transcript)).aiMessage().text();
+    public String generateNextQuestion(Transcript transcript, InterviewContext context) {
+        String raw = chatModel.chat(toChatMessages(transcript, context)).aiMessage().text();
         return sanitizeQuestion(raw);
     }
 
@@ -51,9 +48,9 @@ class OllamaQuestionGenerator implements QuestionGenerator {
                 .strip();
     }
 
-    private List<ChatMessage> toChatMessages(Transcript transcript) {
+    private List<ChatMessage> toChatMessages(Transcript transcript, InterviewContext context) {
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(new SystemMessage(SYSTEM_PROMPT));
+        messages.add(new SystemMessage(promptAssembler.assemble(context)));
         for (Message message : transcript.messages()) {
             messages.add(toChatMessage(message));
         }

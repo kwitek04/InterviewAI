@@ -2,6 +2,7 @@ package com.interviewai.session.adapter.in.web;
 
 import com.interviewai.session.application.SessionApplicationService;
 import com.interviewai.session.domain.InterviewSession;
+import com.interviewai.shared.CvId;
 import com.interviewai.shared.SessionId;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -32,8 +34,11 @@ class SessionController {
      * Starts a new interview session and returns its first question.
      */
     @PostMapping
-    ResponseEntity<QuestionResponse> startSession() {
-        InterviewSession session = sessionApplicationService.startInterview();
+    ResponseEntity<QuestionResponse> startSession(@RequestBody(required = false) StartSessionRequest request) {
+        Optional<CvId> cvId = request == null || request.cvId() == null
+                ? Optional.empty()
+                : Optional.of(new CvId(request.cvId()));
+        InterviewSession session = sessionApplicationService.startInterview(cvId);
         return ResponseEntity.status(HttpStatus.CREATED).body(QuestionResponse.from(session));
     }
 

@@ -1,5 +1,7 @@
 package com.interviewai.session.application;
 
+import com.interviewai.cv.application.CvRetrievalService;
+import com.interviewai.interview.application.port.out.InterviewContext;
 import com.interviewai.interview.application.port.out.QuestionGenerator;
 import com.interviewai.session.application.port.out.SessionRepository;
 import com.interviewai.session.domain.InterviewSession;
@@ -8,6 +10,7 @@ import com.interviewai.session.domain.SessionCommand;
 import com.interviewai.session.domain.SessionState;
 import com.interviewai.session.domain.SessionTransitionException;
 import com.interviewai.session.domain.Transcript;
+import com.interviewai.shared.CvId;
 import com.interviewai.shared.SessionId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,11 +22,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,19 +48,23 @@ class SessionApplicationServiceTest {
     @Mock
     private QuestionGenerator questionGenerator;
 
+    @Mock
+    private CvRetrievalService cvRetrievalService;
+
     private SessionApplicationService service;
 
     @BeforeEach
     void setUp() {
-        service = new SessionApplicationService(sessionRepository, questionGenerator, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new SessionApplicationService(
+                sessionRepository, questionGenerator, cvRetrievalService, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
     @DisplayName("starting an interview asks the first question and persists the session in AwaitingAnswer")
     void startInterview_asksFirstQuestionAndPersists() {
-        when(questionGenerator.generateNextQuestion(any())).thenReturn("Tell me about yourself.");
+        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about yourself.");
 
-        InterviewSession session = service.startInterview();
+        InterviewSession session = service.startInterview(Optional.empty());
 
         assertThat(session.state()).isEqualTo(new SessionState.AwaitingAnswer());
         assertThat(session.transcript().messages()).hasSize(1);
@@ -68,7 +81,7 @@ class SessionApplicationServiceTest {
                 .apply(new SessionCommand.StartInterview())
                 .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
         when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
-        when(questionGenerator.generateNextQuestion(any())).thenReturn("What is your experience with Spring Boot?");
+        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("What is your experience with Spring Boot?");
 
         InterviewSession updated = service.submitAnswer(id, "I am a backend developer.");
 
@@ -89,7 +102,7 @@ class SessionApplicationServiceTest {
 
         assertThatThrownBy(() -> service.submitAnswer(id, "an answer"))
                 .isInstanceOf(SessionNotFoundException.class);
-        verify(questionGenerator, never()).generateNextQuestion(any());
+        verify(questionGenerator, never()).generateNextQuestion(any(), any());
     }
 
     @Test
@@ -108,7 +121,7 @@ class SessionApplicationServiceTest {
     @DisplayName("getSession returns the persisted session")
     void getSession_returnsPersistedSession() {
         SessionId id = SessionId.generate();
-        InterviewSession session = new InterviewSession(id, new SessionState.InProgress(), Transcript.empty());
+        InterviewSession session = new InterviewSession(id, null, new SessionState.InProgress(), Transcript.empty());
         when(sessionRepository.findById(id)).thenReturn(Optional.of(session));
 
         assertThat(service.getSession(id)).isEqualTo(session);
@@ -136,7 +149,7 @@ class SessionApplicationServiceTest {
 
         assertThat(result.state()).isEqualTo(new SessionState.Completed());
         verify(sessionRepository).save(result);
-        verify(questionGenerator, never()).generateNextQuestion(any());
+        verify(questionGenerator, never()).generateNextQuestion(any(), any());
     }
 
     @Test
@@ -187,10 +200,57 @@ class SessionApplicationServiceTest {
     @DisplayName("cancelInterview on an already completed session throws SessionTransitionException")
     void cancelInterview_whenAlreadyCompleted_throwsSessionTransitionException() {
         SessionId id = SessionId.generate();
-        InterviewSession completed = new InterviewSession(id, new SessionState.Completed(), Transcript.empty());
+        InterviewSession completed = new InterviewSession(id, null, new SessionState.Completed(), Transcript.empty());
         when(sessionRepository.findById(id)).thenReturn(Optional.of(completed));
 
         assertThatThrownBy(() -> service.cancelInterview(id)).isInstanceOf(SessionTransitionException.class);
         verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("starting with cvId retrieves context using job offer on first question")
+    void startInterview_withCvId_retrievesContextWithJobOffer() {
+        CvId cvId = new CvId(UUID.randomUUID());
+        when(cvRetrievalService.retrieveJobOffer(cvId)).thenReturn("Java + Spring Boot");
+        when(cvRetrievalService.retrieveContext(cvId, "Java + Spring Boot", 4))
+                .thenReturn(new CvRetrievalService.CvContext("Java + Spring Boot", List.of("Allegro project")));
+        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about Allegro.");
+
+        InterviewSession session = service.startInterview(Optional.of(cvId));
+
+        assertThat(session.cvId()).contains(cvId);
+        verify(cvRetrievalService).retrieveJobOffer(cvId);
+        verify(cvRetrievalService).retrieveContext(cvId, "Java + Spring Boot", 4);
+        verify(questionGenerator).generateNextQuestion(any(), argThat(context ->
+                context.jobOffer().equals("Java + Spring Boot") && context.cvExcerpts().contains("Allegro project")));
+    }
+
+    @Test
+    @DisplayName("follow-up with cvId retrieves context using the last candidate answer")
+    void submitAnswer_withCvId_retrievesContextWithLastAnswer() {
+        CvId cvId = new CvId(UUID.randomUUID());
+        SessionId id = SessionId.generate();
+        InterviewSession awaitingAnswer = InterviewSession.create(id, cvId)
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
+        when(cvRetrievalService.retrieveContext(cvId, "I worked with Kafka at Allegro.", 4))
+                .thenReturn(new CvRetrievalService.CvContext("Backend role", List.of("Kafka", "Allegro")));
+        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("How did you scale Kafka?");
+
+        service.submitAnswer(id, "I worked with Kafka at Allegro.");
+
+        verify(cvRetrievalService).retrieveContext(cvId, "I worked with Kafka at Allegro.", 4);
+    }
+
+    @Test
+    @DisplayName("without cvId passes empty interview context and never calls retrieval")
+    void startInterview_withoutCvId_usesEmptyContext() {
+        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about yourself.");
+
+        service.startInterview(Optional.empty());
+
+        verify(cvRetrievalService, never()).retrieveContext(any(), anyString(), anyInt());
+        verify(questionGenerator).generateNextQuestion(any(), eq(InterviewContext.empty()));
     }
 }

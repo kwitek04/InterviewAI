@@ -13,5 +13,5 @@ public interface QuestionGenerator {
     /**
      * Produces the next interview question given the transcript exchanged so far.
      */
-    String generateNextQuestion(Transcript transcript);
+    String generateNextQuestion(Transcript transcript, InterviewContext context);
 }

@@ -5,6 +5,7 @@ import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.session.domain.Message;
 import com.interviewai.session.domain.MessageRole;
 import com.interviewai.session.domain.Transcript;
+import com.interviewai.shared.CvId;
 import com.interviewai.shared.SessionId;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,7 @@ class SessionPersistenceAdapter implements SessionRepository {
                 .orElseGet(() -> InterviewSessionEntity.create(
                         session.id().value(), SessionStateMapper.toStorage(session.state())));
         entity.setState(SessionStateMapper.toStorage(session.state()));
+        entity.setCvId(session.cvId().map(CvId::value).orElse(null));
         appendNewMessages(entity, session.transcript().messages());
         repository.save(entity);
     }
@@ -56,6 +58,7 @@ class SessionPersistenceAdapter implements SessionRepository {
         }
         return new InterviewSession(
                 new SessionId(entity.getId()),
+                entity.getCvId() == null ? null : new CvId(entity.getCvId()),
                 SessionStateMapper.fromStorage(entity.getState()),
                 transcript);
     }

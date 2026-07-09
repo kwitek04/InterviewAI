@@ -1,5 +1,6 @@
 package com.interviewai.session.adapter.in.web;
 
+import com.interviewai.cv.application.CvNotFoundException;
 import com.interviewai.session.application.SessionNotFoundException;
 import com.interviewai.session.domain.SessionTransitionException;
 import org.springframework.http.HttpStatus;
@@ -15,6 +16,11 @@ import java.util.stream.Collectors;
  */
 @RestControllerAdvice
 class SessionExceptionHandler {
+
+    @ExceptionHandler(CvNotFoundException.class)
+    ProblemDetail handleCvNotFound(CvNotFoundException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
 
     @ExceptionHandler(SessionNotFoundException.class)
     ProblemDetail handleSessionNotFound(SessionNotFoundException exception) {

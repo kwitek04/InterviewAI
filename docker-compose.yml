@@ -31,8 +31,30 @@ services:
       timeout: 5s
       retries: 10
 
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: interviewai-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "Waiting for Ollama at $$OLLAMA_HOST..."
+        until ollama list >/dev/null 2>&1; do
+          sleep 2
+        done
+        ollama pull llama3.2:3b
+        ollama pull nomic-embed-text
+        echo "Ollama models ready."
+    restart: "no"
+
   localstack:
-    image: localstack/localstack:latest
+    # Pinned to the last free Community-edition release. Do not move to :latest.
+    image: localstack/localstack:4
     container_name: interviewai-localstack
     environment:
       SERVICES: s3,sqs

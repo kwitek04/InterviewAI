@@ -1,13 +1,18 @@
 package com.interviewai.session.application;
 
+import com.interviewai.cv.application.CvRetrievalService;
+import com.interviewai.interview.application.port.out.InterviewContext;
 import com.interviewai.interview.application.port.out.QuestionGenerator;
 import com.interviewai.session.application.port.out.SessionRepository;
 import com.interviewai.session.domain.InterviewSession;
+import com.interviewai.session.domain.MessageRole;
 import com.interviewai.session.domain.SessionCommand;
+import com.interviewai.shared.CvId;
 import com.interviewai.shared.SessionId;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.util.Optional;
 
 /**
  * Orchestrates the interview session use cases: starting a session, recording a
@@ -22,20 +27,26 @@ public class SessionApplicationService {
 
     private final SessionRepository sessionRepository;
     private final QuestionGenerator questionGenerator;
+    private final CvRetrievalService cvRetrievalService;
     private final Clock clock;
 
     public SessionApplicationService(
-            SessionRepository sessionRepository, QuestionGenerator questionGenerator, Clock clock) {
+            SessionRepository sessionRepository,
+            QuestionGenerator questionGenerator,
+            CvRetrievalService cvRetrievalService,
+            Clock clock) {
         this.sessionRepository = sessionRepository;
         this.questionGenerator = questionGenerator;
+        this.cvRetrievalService = cvRetrievalService;
         this.clock = clock;
     }
 
     /**
      * Starts a new interview session and asks the first question.
      */
-    public InterviewSession startInterview() {
-        InterviewSession session = InterviewSession.create(SessionId.generate())
+    public InterviewSession startInterview(Optional<CvId> cvId) {
+        InterviewSession session = cvId.map(id -> InterviewSession.create(SessionId.generate(), id))
+                .orElseGet(() -> InterviewSession.create(SessionId.generate()))
                 .apply(new SessionCommand.StartInterview());
         return askNextQuestion(session);
     }
@@ -89,10 +100,31 @@ public class SessionApplicationService {
     }
 
     private InterviewSession askNextQuestion(InterviewSession session) {
-        String question = questionGenerator.generateNextQuestion(session.transcript());
+        InterviewContext context = session.cvId()
+                .map(cvId -> buildInterviewContext(cvId, session))
+                .orElseGet(InterviewContext::empty);
+
+        String question = questionGenerator.generateNextQuestion(session.transcript(), context);
         InterviewSession updated = session.apply(new SessionCommand.AskQuestion(question, clock.instant()));
         sessionRepository.save(updated);
         return updated;
+    }
+
+    private InterviewContext buildInterviewContext(CvId cvId, InterviewSession session) {
+        String query = lastCandidateAnswer(session)
+                .orElseGet(() -> cvRetrievalService.retrieveJobOffer(cvId));
+        return toInterviewContext(cvRetrievalService.retrieveContext(cvId, query, 4));
+    }
+
+    private Optional<String> lastCandidateAnswer(InterviewSession session) {
+        return session.transcript().messages().stream()
+                .filter(message -> message.role() == MessageRole.CANDIDATE)
+                .reduce((first, second) -> second)
+                .map(message -> message.content());
+    }
+
+    private InterviewContext toInterviewContext(CvRetrievalService.CvContext context) {
+        return new InterviewContext(context.jobOffer(), context.relevantChunks());
     }
 
     private InterviewSession loadOrThrow(SessionId id) {

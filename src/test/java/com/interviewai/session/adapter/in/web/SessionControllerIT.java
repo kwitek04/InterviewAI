@@ -6,6 +6,7 @@ import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.session.domain.SessionCommand;
 import com.interviewai.session.domain.SessionState;
 import com.interviewai.session.domain.SessionTransitionException;
+import com.interviewai.shared.CvId;
 import com.interviewai.shared.SessionId;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,12 +65,43 @@ class SessionControllerIT {
         InterviewSession session = InterviewSession.create(id)
                 .apply(new SessionCommand.StartInterview())
                 .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
-        when(sessionApplicationService.startInterview()).thenReturn(session);
+        when(sessionApplicationService.startInterview(java.util.Optional.empty())).thenReturn(session);
 
         mockMvc.perform(post("/api/v1/sessions"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
                 .andExpect(jsonPath("$.question").value("Tell me about yourself."));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions accepts optional cvId body")
+    void startSession_withCvId_returnsCreated() throws Exception {
+        SessionId id = SessionId.generate();
+        UUID cvId = UUID.randomUUID();
+        InterviewSession session = InterviewSession.create(id, new CvId(cvId))
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about your Kafka project.", NOW));
+        when(sessionApplicationService.startInterview(eq(java.util.Optional.of(new CvId(cvId))))).thenReturn(session);
+
+        mockMvc.perform(post("/api/v1/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cvId\":\"" + cvId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
+                .andExpect(jsonPath("$.question").value("Tell me about your Kafka project."));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/sessions returns 404 for unknown cvId")
+    void startSession_withUnknownCvId_returns404() throws Exception {
+        UUID cvId = UUID.randomUUID();
+        when(sessionApplicationService.startInterview(eq(java.util.Optional.of(new CvId(cvId)))))
+                .thenThrow(new com.interviewai.cv.application.CvNotFoundException(new CvId(cvId)));
+
+        mockMvc.perform(post("/api/v1/sessions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cvId\":\"" + cvId + "\"}"))
+                .andExpect(status().isNotFound());
     }
 
     @Test

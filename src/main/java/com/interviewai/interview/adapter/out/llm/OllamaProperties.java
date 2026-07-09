@@ -9,5 +9,5 @@ import java.time.Duration;
  * {@code interviewai.llm.ollama.*} configuration properties.
  */
 @ConfigurationProperties(prefix = "interviewai.llm.ollama")
-record OllamaProperties(String baseUrl, String modelName, Duration timeout) {
+record OllamaProperties(String baseUrl, String modelName, String embeddingModelName, Duration timeout) {
 }
