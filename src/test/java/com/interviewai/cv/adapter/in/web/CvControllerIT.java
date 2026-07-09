@@ -1,5 +1,6 @@
 package com.interviewai.cv.adapter.in.web;
 
+import com.interviewai.cv.application.CvEmbeddingException;
 import com.interviewai.cv.application.port.out.CvChunkStore;
 import com.interviewai.cv.application.port.out.CvTextExtractor;
 import com.interviewai.cv.application.port.out.EmbeddingGenerator;
@@ -87,6 +88,23 @@ class CvControllerIT {
                 .andExpect(jsonPath("$.characterCount").value("Jane Doe, Senior Backend Engineer".length()))
                 .andExpect(jsonPath("$.chunkCount").value(1))
                 .andExpect(jsonPath("$.cvId").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/cv returns 503 when embedding backend is unavailable")
+    void uploadCv_whenEmbeddingBackendUnavailable_returns503() throws Exception {
+        when(fileStorage.store(anyString(), any(byte[].class), anyString()))
+                .thenReturn(new StoredFile("cv/some-id.pdf", VALID_PDF.length));
+        when(cvTextExtractor.extractText(VALID_PDF)).thenReturn("Jane Doe, Senior Backend Engineer");
+        when(textChunker.chunk("Jane Doe, Senior Backend Engineer"))
+                .thenReturn(List.of(new TextChunk(0, "Jane Doe, Senior Backend Engineer")));
+        when(embeddingGenerator.embedAll(anyList()))
+                .thenThrow(new CvEmbeddingException("Embedding model is unavailable in Ollama", null));
+
+        MockMultipartFile file = new MockMultipartFile("file", "cv.pdf", "application/pdf", VALID_PDF);
+
+        mockMvc.perform(multipart("/api/v1/cv").file(file).param("jobOffer", "We are hiring a backend engineer."))
+                .andExpect(status().isServiceUnavailable());
     }
 
     @Test
