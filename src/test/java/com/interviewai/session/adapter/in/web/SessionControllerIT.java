@@ -71,7 +71,9 @@ class SessionControllerIT {
         mockMvc.perform(post("/api/v1/sessions"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
-                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()));
+                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()))
+                .andExpect(jsonPath("$.eventsUrl").value(
+                        "/api/v1/sessions/%s/responses/%s/events".formatted(id.value(), responseId.value())));
     }
 
     @Test
@@ -88,7 +90,9 @@ class SessionControllerIT {
                         .content("{\"cvId\":\"" + cvId + "\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
-                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()));
+                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()))
+                .andExpect(jsonPath("$.eventsUrl").value(
+                        "/api/v1/sessions/%s/responses/%s/events".formatted(id.value(), responseId.value())));
     }
 
     @Test
@@ -126,7 +130,9 @@ class SessionControllerIT {
                         .content("{\"answer\":\"I am a backend developer.\"}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
-                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()));
+                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()))
+                .andExpect(jsonPath("$.eventsUrl").value(
+                        "/api/v1/sessions/%s/responses/%s/events".formatted(id.value(), responseId.value())));
     }
 
     @Test

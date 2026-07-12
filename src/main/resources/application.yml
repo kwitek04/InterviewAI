@@ -32,6 +32,10 @@ interviewai:
       access-key: test
       secret-key: test
       path-style-access: true
+  streaming:
+    emitter-timeout: 5m
+    poll-interval: 250ms
+    heartbeat-interval: 15s
 
 management:
   endpoints:
