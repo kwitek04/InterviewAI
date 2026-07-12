@@ -1,8 +1,8 @@
 package com.interviewai.session.application;
 
-import com.interviewai.cv.application.CvRetrievalService;
-import com.interviewai.interview.application.port.out.InterviewContext;
-import com.interviewai.interview.application.port.out.QuestionGenerator;
+import com.interviewai.interview.application.port.out.QuestionResponseStore;
+import com.interviewai.interview.domain.QuestionResponse;
+import com.interviewai.interview.domain.QuestionResponseStatus;
 import com.interviewai.session.application.port.out.SessionRepository;
 import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.session.domain.MessageRole;
@@ -10,34 +10,35 @@ import com.interviewai.session.domain.SessionCommand;
 import com.interviewai.session.domain.SessionState;
 import com.interviewai.session.domain.SessionTransitionException;
 import com.interviewai.session.domain.Transcript;
-import com.interviewai.shared.CvId;
+import com.interviewai.shared.ResponseId;
 import com.interviewai.shared.SessionId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class SessionApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-01-01T10:00:00Z");
@@ -46,52 +47,114 @@ class SessionApplicationServiceTest {
     private SessionRepository sessionRepository;
 
     @Mock
-    private QuestionGenerator questionGenerator;
+    private QuestionResponseStore questionResponseStore;
 
     @Mock
-    private CvRetrievalService cvRetrievalService;
+    private QuestionGenerationCoordinator questionGenerationCoordinator;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
+    private ControllableExecutor controllableExecutor;
     private SessionApplicationService service;
 
     @BeforeEach
     void setUp() {
+        controllableExecutor = new ControllableExecutor();
         service = new SessionApplicationService(
-                sessionRepository, questionGenerator, cvRetrievalService, Clock.fixed(NOW, ZoneOffset.UTC));
+                sessionRepository,
+                questionResponseStore,
+                questionGenerationCoordinator,
+                transactionTemplate,
+                controllableExecutor,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
     }
 
     @Test
-    @DisplayName("starting an interview asks the first question and persists the session in AwaitingAnswer")
-    void startInterview_asksFirstQuestionAndPersists() {
-        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about yourself.");
+    @DisplayName("starting an interview returns a response handle without waiting for generation")
+    void startInterview_returnsHandleBeforeGenerationRuns() {
+        ResponseId responseId = ResponseId.generate();
+        when(questionResponseStore.createPending(any())).thenAnswer(invocation -> {
+            SessionId sessionId = invocation.getArgument(0);
+            return pendingResponse(sessionId, responseId);
+        });
 
-        InterviewSession session = service.startInterview(Optional.empty());
+        AcceptedGeneration accepted = service.startInterview(Optional.empty());
 
-        assertThat(session.state()).isEqualTo(new SessionState.AwaitingAnswer());
-        assertThat(session.transcript().messages()).hasSize(1);
-        assertThat(session.transcript().messages().getFirst().role()).isEqualTo(MessageRole.INTERVIEWER);
-        assertThat(session.transcript().messages().getFirst().content()).isEqualTo("Tell me about yourself.");
-        verify(sessionRepository).save(session);
+        assertThat(accepted.sessionId()).isNotNull();
+        assertThat(accepted.responseId()).isEqualTo(responseId);
+        assertThat(controllableExecutor.hasPending()).isTrue();
+        verify(questionGenerationCoordinator, never()).generate(any());
     }
 
     @Test
-    @DisplayName("submitting an answer appends it, asks the next question, and persists the result")
-    void submitAnswer_appendsAnswerAndAsksNextQuestion() {
+    @DisplayName("persisted command state exists before worker execution")
+    void startInterview_persistsSessionAndPendingResponseBeforeWorkerRuns() {
+        when(questionResponseStore.createPending(any())).thenAnswer(invocation -> {
+            SessionId sessionId = invocation.getArgument(0);
+            return pendingResponse(sessionId, ResponseId.generate());
+        });
+
+        service.startInterview(Optional.empty());
+
+        InOrder order = inOrder(sessionRepository, questionResponseStore);
+        order.verify(sessionRepository).save(any());
+        order.verify(questionResponseStore).createPending(any());
+        assertThat(controllableExecutor.hasPending()).isTrue();
+    }
+
+    @Test
+    @DisplayName("worker execution is submitted only after the acceptance transaction")
+    void startInterview_submitsWorkerAfterTransaction() {
+        when(questionResponseStore.createPending(any())).thenReturn(
+                pendingResponse(SessionId.generate(), ResponseId.generate()));
+
+        AcceptedGeneration accepted = service.startInterview(Optional.empty());
+        controllableExecutor.runNext();
+
+        verify(questionGenerationCoordinator).generate(accepted);
+    }
+
+    @Test
+    @DisplayName("submitting an answer returns a response handle without waiting for generation")
+    void submitAnswer_returnsHandleBeforeGenerationRuns() {
+        SessionId id = SessionId.generate();
+        ResponseId responseId = ResponseId.generate();
+        InterviewSession awaitingAnswer = InterviewSession.create(id)
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
+        when(questionResponseStore.createPending(id)).thenReturn(pendingResponse(id, responseId));
+
+        AcceptedGeneration accepted = service.submitAnswer(id, "I am a backend developer.");
+
+        assertThat(accepted.sessionId()).isEqualTo(id);
+        assertThat(accepted.responseId()).isEqualTo(responseId);
+        assertThat(controllableExecutor.hasPending()).isTrue();
+        verify(questionGenerationCoordinator, never()).generate(any());
+    }
+
+    @Test
+    @DisplayName("submitting an answer persists the candidate message before worker execution")
+    void submitAnswer_persistsCandidateMessageBeforeWorkerRuns() {
         SessionId id = SessionId.generate();
         InterviewSession awaitingAnswer = InterviewSession.create(id)
                 .apply(new SessionCommand.StartInterview())
                 .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
         when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
-        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("What is your experience with Spring Boot?");
+        when(questionResponseStore.createPending(id)).thenReturn(pendingResponse(id, ResponseId.generate()));
 
-        InterviewSession updated = service.submitAnswer(id, "I am a backend developer.");
+        service.submitAnswer(id, "I am a backend developer.");
 
-        assertThat(updated.state()).isEqualTo(new SessionState.AwaitingAnswer());
-        assertThat(updated.transcript().messages()).hasSize(3);
-        assertThat(updated.transcript().messages().get(1).role()).isEqualTo(MessageRole.CANDIDATE);
-        assertThat(updated.transcript().messages().get(1).content()).isEqualTo("I am a backend developer.");
-        assertThat(updated.transcript().messages().getLast().content())
-                .isEqualTo("What is your experience with Spring Boot?");
-        verify(sessionRepository).save(updated);
+        verify(sessionRepository).save(org.mockito.ArgumentMatchers.argThat(session ->
+                session.state().equals(new SessionState.InProgress())
+                        && session.transcript().messages().stream()
+                        .anyMatch(message -> message.role() == MessageRole.CANDIDATE
+                                && message.content().equals("I am a backend developer."))));
     }
 
     @Test
@@ -102,7 +165,7 @@ class SessionApplicationServiceTest {
 
         assertThatThrownBy(() -> service.submitAnswer(id, "an answer"))
                 .isInstanceOf(SessionNotFoundException.class);
-        verify(questionGenerator, never()).generateNextQuestion(any(), any());
+        verify(questionResponseStore, never()).createPending(any());
     }
 
     @Test
@@ -115,6 +178,7 @@ class SessionApplicationServiceTest {
         assertThatThrownBy(() -> service.submitAnswer(id, "an answer"))
                 .isInstanceOf(SessionTransitionException.class);
         verify(sessionRepository, never()).save(any());
+        verify(questionResponseStore, never()).createPending(any());
     }
 
     @Test
@@ -149,7 +213,6 @@ class SessionApplicationServiceTest {
 
         assertThat(result.state()).isEqualTo(new SessionState.Completed());
         verify(sessionRepository).save(result);
-        verify(questionGenerator, never()).generateNextQuestion(any(), any());
     }
 
     @Test
@@ -174,16 +237,19 @@ class SessionApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("cancelInterview transitions a newly created session to Cancelled and persists it")
-    void cancelInterview_whenCreated_transitionsToCancelledAndPersists() {
+    @DisplayName("cancelInterview transitions a newly created session to Cancelled and cancels active response")
+    void cancelInterview_whenCreated_transitionsToCancelledAndCancelsActiveResponse() {
         SessionId id = SessionId.generate();
+        ResponseId responseId = ResponseId.generate();
         InterviewSession created = InterviewSession.create(id);
         when(sessionRepository.findById(id)).thenReturn(Optional.of(created));
+        when(questionResponseStore.findActiveBySessionId(id)).thenReturn(Optional.of(pendingResponse(id, responseId)));
 
         InterviewSession result = service.cancelInterview(id);
 
         assertThat(result.state()).isEqualTo(new SessionState.Cancelled());
         verify(sessionRepository).save(result);
+        verify(questionResponseStore).markCancelled(responseId);
     }
 
     @Test
@@ -207,50 +273,16 @@ class SessionApplicationServiceTest {
         verify(sessionRepository, never()).save(any());
     }
 
-    @Test
-    @DisplayName("starting with cvId retrieves context using job offer on first question")
-    void startInterview_withCvId_retrievesContextWithJobOffer() {
-        CvId cvId = new CvId(UUID.randomUUID());
-        when(cvRetrievalService.retrieveJobOffer(cvId)).thenReturn("Java + Spring Boot");
-        when(cvRetrievalService.retrieveContext(cvId, "Java + Spring Boot", 4))
-                .thenReturn(new CvRetrievalService.CvContext("Java + Spring Boot", List.of("Allegro project")));
-        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about Allegro.");
-
-        InterviewSession session = service.startInterview(Optional.of(cvId));
-
-        assertThat(session.cvId()).contains(cvId);
-        verify(cvRetrievalService).retrieveJobOffer(cvId);
-        verify(cvRetrievalService).retrieveContext(cvId, "Java + Spring Boot", 4);
-        verify(questionGenerator).generateNextQuestion(any(), argThat(context ->
-                context.jobOffer().equals("Java + Spring Boot") && context.cvExcerpts().contains("Allegro project")));
-    }
-
-    @Test
-    @DisplayName("follow-up with cvId retrieves context using the last candidate answer")
-    void submitAnswer_withCvId_retrievesContextWithLastAnswer() {
-        CvId cvId = new CvId(UUID.randomUUID());
-        SessionId id = SessionId.generate();
-        InterviewSession awaitingAnswer = InterviewSession.create(id, cvId)
-                .apply(new SessionCommand.StartInterview())
-                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
-        when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
-        when(cvRetrievalService.retrieveContext(cvId, "I worked with Kafka at Allegro.", 4))
-                .thenReturn(new CvRetrievalService.CvContext("Backend role", List.of("Kafka", "Allegro")));
-        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("How did you scale Kafka?");
-
-        service.submitAnswer(id, "I worked with Kafka at Allegro.");
-
-        verify(cvRetrievalService).retrieveContext(cvId, "I worked with Kafka at Allegro.", 4);
-    }
-
-    @Test
-    @DisplayName("without cvId passes empty interview context and never calls retrieval")
-    void startInterview_withoutCvId_usesEmptyContext() {
-        when(questionGenerator.generateNextQuestion(any(), any())).thenReturn("Tell me about yourself.");
-
-        service.startInterview(Optional.empty());
-
-        verify(cvRetrievalService, never()).retrieveContext(any(), anyString(), anyInt());
-        verify(questionGenerator).generateNextQuestion(any(), eq(InterviewContext.empty()));
+    private QuestionResponse pendingResponse(SessionId sessionId, ResponseId responseId) {
+        return new QuestionResponse(
+                responseId,
+                sessionId,
+                QuestionResponseStatus.PENDING,
+                "",
+                null,
+                0,
+                null,
+                NOW,
+                NOW);
     }
 }
