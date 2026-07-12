@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-function ChatInput({ onSend, disabled }) {
+function ChatInput({ onSend, disabled, isStreaming }) {
   const [value, setValue] = useState('');
 
   const trySend = () => {
@@ -22,13 +22,17 @@ function ChatInput({ onSend, disabled }) {
     }
   };
 
+  const placeholder = isStreaming
+    ? 'Waiting for the next question…'
+    : 'Type your answer…';
+
   return (
     <form className="chat-input" onSubmit={handleSubmit}>
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={disabled ? 'Recruiter is reviewing your answer…' : 'Type your answer…'}
+        placeholder={placeholder}
         disabled={disabled}
         rows={1}
         aria-label="Your answer"

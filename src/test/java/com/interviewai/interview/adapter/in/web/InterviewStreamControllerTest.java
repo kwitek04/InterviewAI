@@ -9,10 +9,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.ArgumentMatchers;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -50,7 +53,8 @@ class InterviewStreamControllerTest {
     @Test
     @DisplayName("GET /events opens an SSE stream for a valid response")
     void streamEvents_validRequest_startsSseStream() throws Exception {
-        when(streamFeeder.open(eq(sessionId), eq(responseId), eq(0))).thenReturn(new SseEmitter(60_000L));
+        when(streamFeeder.open(eq(sessionId), eq(responseId), eq(0), ArgumentMatchers.any(HttpServletResponse.class)))
+                .thenReturn(new SseEmitter(60_000L));
 
         mockMvc.perform(get(
                         "/api/v1/sessions/{sessionId}/responses/{responseId}/events",
@@ -61,13 +65,14 @@ class InterviewStreamControllerTest {
                 .andExpect(request().asyncStarted())
                 .andReturn();
 
-        verify(streamFeeder).open(sessionId, responseId, 0);
+        verify(streamFeeder).open(eq(sessionId), eq(responseId), eq(0), ArgumentMatchers.any(HttpServletResponse.class));
     }
 
     @Test
     @DisplayName("GET /events passes Last-Event-ID as replay cursor")
     void streamEvents_withLastEventId_passesReplayCursor() throws Exception {
-        when(streamFeeder.open(eq(sessionId), eq(responseId), eq(2))).thenReturn(new SseEmitter(60_000L));
+        when(streamFeeder.open(eq(sessionId), eq(responseId), eq(2), ArgumentMatchers.any(HttpServletResponse.class)))
+                .thenReturn(new SseEmitter(60_000L));
 
         mockMvc.perform(get(
                         "/api/v1/sessions/{sessionId}/responses/{responseId}/events",
@@ -78,7 +83,7 @@ class InterviewStreamControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(request().asyncStarted());
 
-        verify(streamFeeder).open(sessionId, responseId, 2);
+        verify(streamFeeder).open(eq(sessionId), eq(responseId), eq(2), ArgumentMatchers.any(HttpServletResponse.class));
     }
 
     @Test
@@ -96,7 +101,7 @@ class InterviewStreamControllerTest {
     @Test
     @DisplayName("GET /events returns 404 for unknown response")
     void streamEvents_unknownResponse_returns404() throws Exception {
-        when(streamFeeder.open(eq(sessionId), eq(responseId), anyInt()))
+        when(streamFeeder.open(eq(sessionId), eq(responseId), anyInt(), ArgumentMatchers.any(HttpServletResponse.class)))
                 .thenThrow(new QuestionResponseNotFoundException(responseId));
 
         mockMvc.perform(get(
@@ -110,7 +115,7 @@ class InterviewStreamControllerTest {
     @Test
     @DisplayName("GET /events returns 404 for response and session mismatch")
     void streamEvents_responseSessionMismatch_returns404() throws Exception {
-        when(streamFeeder.open(eq(sessionId), any(ResponseId.class), anyInt()))
+        when(streamFeeder.open(eq(sessionId), any(ResponseId.class), anyInt(), ArgumentMatchers.any(HttpServletResponse.class)))
                 .thenThrow(new QuestionResponseNotFoundException(responseId));
 
         mockMvc.perform(get(

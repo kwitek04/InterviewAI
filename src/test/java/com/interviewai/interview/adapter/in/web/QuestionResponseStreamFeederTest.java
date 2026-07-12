@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -71,7 +72,7 @@ class QuestionResponseStreamFeederTest {
         when(questionResponseStore.requireOwnedBySession(responseId, sessionId))
                 .thenReturn(activeResponse());
 
-        ownershipFeeder.open(sessionId, responseId, 0);
+        ownershipFeeder.open(sessionId, responseId, 0, null);
 
         verify(questionResponseStore).requireOwnedBySession(responseId, sessionId);
     }
@@ -82,7 +83,7 @@ class QuestionResponseStreamFeederTest {
         when(questionResponseStore.requireOwnedBySession(responseId, sessionId))
                 .thenThrow(new QuestionResponseNotFoundException(responseId));
 
-        assertThatThrownBy(() -> feeder.open(sessionId, responseId, 0))
+        assertThatThrownBy(() -> feeder.open(sessionId, responseId, 0, null))
                 .isInstanceOf(QuestionResponseNotFoundException.class);
     }
 
@@ -90,12 +91,12 @@ class QuestionResponseStreamFeederTest {
     @DisplayName("deliverEvents replays all stored events in order and completes on terminal event")
     void deliverEvents_replaysEventsInOrder() throws Exception {
         CapturingSseEmitter emitter = new CapturingSseEmitter();
-        when(questionResponseStore.eventsAfter(responseId, 0)).thenReturn(List.of(
+        stubEventsAfter(
                 streamEvent(1, QuestionResponseEventType.TOKEN, "How"),
                 streamEvent(2, QuestionResponseEventType.TOKEN, " are you?"),
-                streamEvent(3, QuestionResponseEventType.COMPLETED, "How are you?")));
+                streamEvent(3, QuestionResponseEventType.COMPLETED, "How are you?"));
 
-        feeder.deliverEvents(emitter, responseId, 0);
+        feeder.deliverEvents(emitter, responseId, 0, null);
 
         assertThat(emitter.eventNames()).containsExactly("token", "token", "completed");
         assertThat(emitter.eventIds()).containsExactly("1", "2", "3");
@@ -110,10 +111,10 @@ class QuestionResponseStreamFeederTest {
     @DisplayName("deliverEvents starts replay after Last-Event-ID sequence")
     void deliverEvents_replaysOnlyAfterLastEventId() throws Exception {
         CapturingSseEmitter emitter = new CapturingSseEmitter();
-        when(questionResponseStore.eventsAfter(responseId, 2)).thenReturn(List.of(
-                streamEvent(3, QuestionResponseEventType.COMPLETED, "How are you?")));
+        stubEventsAfter(
+                streamEvent(3, QuestionResponseEventType.COMPLETED, "How are you?"));
 
-        feeder.deliverEvents(emitter, responseId, 2);
+        feeder.deliverEvents(emitter, responseId, 2, null);
 
         assertThat(emitter.eventIds()).containsExactly("3");
         assertThat(emitter.completed()).isTrue();
@@ -126,7 +127,7 @@ class QuestionResponseStreamFeederTest {
         when(questionResponseStore.eventsAfter(responseId, 3)).thenReturn(List.of());
         when(questionResponseStore.findById(responseId)).thenReturn(Optional.of(completedResponse()));
 
-        feeder.deliverEvents(emitter, responseId, 3);
+        feeder.deliverEvents(emitter, responseId, 3, null);
 
         assertThat(emitter.sentEvents()).isZero();
         assertThat(emitter.completed()).isTrue();
@@ -136,14 +137,23 @@ class QuestionResponseStreamFeederTest {
     @DisplayName("deliverEvents does not mutate response status on transport failure")
     void deliverEvents_onSendFailure_doesNotMutateResponseStatus() throws Exception {
         CapturingSseEmitter emitter = new CapturingSseEmitter(true);
-        when(questionResponseStore.eventsAfter(responseId, 0)).thenReturn(List.of(
-                streamEvent(1, QuestionResponseEventType.TOKEN, "Hello")));
+        stubEventsAfter(streamEvent(1, QuestionResponseEventType.TOKEN, "Hello"));
 
-        feeder.deliverEvents(emitter, responseId, 0);
+        feeder.deliverEvents(emitter, responseId, 0, null);
 
         verify(questionResponseStore, never()).markFailed(eq(responseId), org.mockito.ArgumentMatchers.anyString());
         verify(questionResponseStore, never()).markCancelled(responseId);
         verify(questionResponseStore, never()).markCompleted(eq(responseId), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    private void stubEventsAfter(QuestionResponseStreamEvent... events) {
+        List<QuestionResponseStreamEvent> allEvents = List.of(events);
+        when(questionResponseStore.eventsAfter(eq(responseId), anyInt())).thenAnswer(invocation -> {
+            int afterSequence = invocation.getArgument(1);
+            return allEvents.stream()
+                    .filter(event -> event.sequence() > afterSequence)
+                    .toList();
+        });
     }
 
     private QuestionResponse activeResponse() {

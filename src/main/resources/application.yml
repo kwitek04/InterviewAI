@@ -34,7 +34,7 @@ interviewai:
       path-style-access: true
   streaming:
     emitter-timeout: 5m
-    poll-interval: 250ms
+    poll-interval: 50ms
     heartbeat-interval: 15s
 
 management:

@@ -1,5 +1,11 @@
-function MessageBubble({ role, content }) {
+import { useWordReveal } from '../hooks/useWordReveal.js';
+
+function MessageBubble({ role, content, isStreaming, onRevealProgress }) {
   const isCandidate = role === 'CANDIDATE';
+  const { displayText, isRevealing } = useWordReveal(content, !isCandidate && isStreaming, {
+    onSegmentRevealed: onRevealProgress,
+  });
+  const showCursor = !isCandidate && (isStreaming || isRevealing);
 
   return (
     <div className={`message-row ${isCandidate ? 'message-row--candidate' : 'message-row--interviewer'}`}>
@@ -9,7 +15,8 @@ function MessageBubble({ role, content }) {
           isCandidate ? 'message-bubble--candidate' : 'message-bubble--interviewer'
         }`}
       >
-        {content}
+        {isCandidate ? content : displayText}
+        {showCursor && <span className="streaming-cursor" aria-hidden="true" />}
       </div>
     </div>
   );

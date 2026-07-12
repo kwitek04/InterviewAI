@@ -6,6 +6,7 @@ import com.interviewai.interview.domain.QuestionResponseStatus;
 import com.interviewai.interview.domain.QuestionResponseStreamEvent;
 import com.interviewai.shared.ResponseId;
 import com.interviewai.shared.SessionId;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -39,15 +40,15 @@ class QuestionResponseStreamFeeder {
         this.clock = clock;
     }
 
-    SseEmitter open(SessionId sessionId, ResponseId responseId, int afterSequence) {
+    SseEmitter open(SessionId sessionId, ResponseId responseId, int afterSequence, HttpServletResponse response) {
         questionResponseStore.requireOwnedBySession(responseId, sessionId);
 
         SseEmitter emitter = new SseEmitter(properties.emitterTimeout().toMillis());
-        questionGenerationExecutor.execute(() -> deliverEvents(emitter, responseId, afterSequence));
+        questionGenerationExecutor.execute(() -> deliverEvents(emitter, responseId, afterSequence, response));
         return emitter;
     }
 
-    void deliverEvents(SseEmitter emitter, ResponseId responseId, int afterSequence) {
+    void deliverEvents(SseEmitter emitter, ResponseId responseId, int afterSequence, HttpServletResponse response) {
         int lastDeliveredSequence = afterSequence;
         Instant lastActivity = clock.instant();
 
@@ -57,15 +58,15 @@ class QuestionResponseStreamFeeder {
                         questionResponseStore.eventsAfter(responseId, lastDeliveredSequence);
 
                 if (!events.isEmpty()) {
-                    for (QuestionResponseStreamEvent event : events) {
-                        emitter.send(sseMapper.toSseEvent(event));
-                        lastDeliveredSequence = event.sequence();
-                        if (QuestionResponseSseMapper.isTerminal(event)) {
-                            emitter.complete();
-                            return;
-                        }
-                    }
+                    QuestionResponseStreamEvent event = events.getFirst();
+                    emitter.send(sseMapper.toSseEvent(event));
+                    flushResponse(response);
+                    lastDeliveredSequence = event.sequence();
                     lastActivity = clock.instant();
+                    if (QuestionResponseSseMapper.isTerminal(event)) {
+                        emitter.complete();
+                        return;
+                    }
                     continue;
                 }
 
@@ -76,6 +77,7 @@ class QuestionResponseStreamFeeder {
 
                 if (Duration.between(lastActivity, clock.instant()).compareTo(properties.heartbeatInterval()) >= 0) {
                     emitter.send(SseEmitter.event().comment("heartbeat"));
+                    flushResponse(response);
                     lastActivity = clock.instant();
                 }
 
@@ -86,6 +88,12 @@ class QuestionResponseStreamFeeder {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             emitter.completeWithError(exception);
+        }
+    }
+
+    private void flushResponse(HttpServletResponse response) throws IOException {
+        if (response != null) {
+            response.flushBuffer();
         }
     }
 

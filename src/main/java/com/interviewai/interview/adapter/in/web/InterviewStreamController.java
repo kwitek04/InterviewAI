@@ -2,6 +2,8 @@ package com.interviewai.interview.adapter.in.web;
 
 import com.interviewai.shared.ResponseId;
 import com.interviewai.shared.SessionId;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,8 +31,16 @@ class InterviewStreamController {
     SseEmitter streamEvents(
             @PathVariable UUID sessionId,
             @PathVariable UUID responseId,
-            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
+            HttpServletResponse response) {
+        configureSseResponse(response);
         int afterSequence = LastEventIdParser.parse(lastEventId);
-        return streamFeeder.open(new SessionId(sessionId), new ResponseId(responseId), afterSequence);
+        return streamFeeder.open(new SessionId(sessionId), new ResponseId(responseId), afterSequence, response);
+    }
+
+    private static void configureSseResponse(HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate");
+        response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
     }
 }
