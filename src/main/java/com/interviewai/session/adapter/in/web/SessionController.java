@@ -1,5 +1,6 @@
 package com.interviewai.session.adapter.in.web;
 
+import com.interviewai.session.application.AcceptedGeneration;
 import com.interviewai.session.application.SessionApplicationService;
 import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.shared.CvId;
@@ -31,24 +32,26 @@ class SessionController {
     }
 
     /**
-     * Starts a new interview session and returns its first question.
+     * Starts a new interview session and accepts generation of the first question.
      */
     @PostMapping
-    ResponseEntity<QuestionResponse> startSession(@RequestBody(required = false) StartSessionRequest request) {
+    ResponseEntity<AcceptedGenerationResponse> startSession(@RequestBody(required = false) StartSessionRequest request) {
         Optional<CvId> cvId = request == null || request.cvId() == null
                 ? Optional.empty()
                 : Optional.of(new CvId(request.cvId()));
-        InterviewSession session = sessionApplicationService.startInterview(cvId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(QuestionResponse.from(session));
+        AcceptedGeneration accepted = sessionApplicationService.startInterview(cvId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(AcceptedGenerationResponse.from(accepted));
     }
 
     /**
-     * Submits the candidate's answer to the current question and returns the next one.
+     * Submits the candidate's answer and accepts generation of the next question.
      */
     @PostMapping("/{id}/answers")
-    QuestionResponse submitAnswer(@PathVariable UUID id, @Valid @RequestBody SubmitAnswerRequest request) {
-        InterviewSession session = sessionApplicationService.submitAnswer(new SessionId(id), request.answer());
-        return QuestionResponse.from(session);
+    ResponseEntity<AcceptedGenerationResponse> submitAnswer(
+            @PathVariable UUID id,
+            @Valid @RequestBody SubmitAnswerRequest request) {
+        AcceptedGeneration accepted = sessionApplicationService.submitAnswer(new SessionId(id), request.answer());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(AcceptedGenerationResponse.from(accepted));
     }
 
     /**

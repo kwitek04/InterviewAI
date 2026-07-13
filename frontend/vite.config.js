@@ -9,6 +9,17 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            const contentType = proxyRes.headers['content-type'];
+            if (typeof contentType === 'string' && contentType.includes('text/event-stream')) {
+              proxyRes.headers['cache-control'] = 'no-cache, no-store, must-revalidate';
+              proxyRes.headers['x-accel-buffering'] = 'no';
+            }
+          });
+        },
       },
     },
   },

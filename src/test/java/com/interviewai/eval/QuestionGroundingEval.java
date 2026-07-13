@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interviewai.cv.application.CvApplicationService;
 import com.interviewai.cv.application.CvUploadCommand;
 import com.interviewai.cv.application.CvUploadResult;
+import com.interviewai.session.application.AcceptedGeneration;
 import com.interviewai.session.application.SessionApplicationService;
 import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.session.domain.MessageRole;
+import com.interviewai.session.domain.SessionState;
 import com.interviewai.shared.CvId;
+import com.interviewai.shared.SessionId;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -106,8 +109,9 @@ class QuestionGroundingEval {
                     CvUploadCommand.fromPlainText(fixture.id() + ".txt", fixture.cvText(), fixture.jobOffer()));
             CvId cvId = upload.document().id();
 
-            InterviewSession afterFirstQuestion =
+            AcceptedGeneration firstAccepted =
                     sessionApplicationService.startInterview(Optional.of(cvId));
+            InterviewSession afterFirstQuestion = awaitAwaitingAnswer(firstAccepted.sessionId());
             String question1 = latestInterviewerMessage(afterFirstQuestion);
             String q1Fact = GroundingMetric.findMatchedFact(question1, fixture.facts());
             boolean q1GroundedFlag = q1Fact != null;
@@ -115,8 +119,9 @@ class QuestionGroundingEval {
                 q1Grounded++;
             }
 
-            InterviewSession afterAnswer = sessionApplicationService.submitAnswer(
+            AcceptedGeneration followUpAccepted = sessionApplicationService.submitAnswer(
                     afterFirstQuestion.id(), CANNED_ANSWER);
+            InterviewSession afterAnswer = awaitAwaitingAnswer(followUpAccepted.sessionId());
             String question2 = latestInterviewerMessage(afterAnswer);
             String q2Fact = GroundingMetric.findMatchedFact(question2, fixture.facts());
             boolean q2GroundedFlag = q2Fact != null;
@@ -166,6 +171,17 @@ class QuestionGroundingEval {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read fixture " + resource.getFilename(), exception);
         }
+    }
+
+    private InterviewSession awaitAwaitingAnswer(SessionId sessionId) throws InterruptedException {
+        for (int attempt = 0; attempt < 180; attempt++) {
+            InterviewSession session = sessionApplicationService.getSession(sessionId);
+            if (session.state() instanceof SessionState.AwaitingAnswer) {
+                return session;
+            }
+            Thread.sleep(1_000);
+        }
+        throw new AssertionError("Timed out waiting for generated question for session " + sessionId.value());
     }
 
     private static String latestInterviewerMessage(InterviewSession session) {

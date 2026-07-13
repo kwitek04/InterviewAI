@@ -1,14 +1,46 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import MessageBubble from './MessageBubble.jsx';
-import TypingIndicator from './TypingIndicator.jsx';
 import ChatInput from './ChatInput.jsx';
+import { useResponseEventStream } from '../hooks/useResponseEventStream.js';
 
-function ChatScreen({ messages, isLoading, error, onSendAnswer, onRestart }) {
+function ChatScreen({
+  messages,
+  streamTarget,
+  isStreaming,
+  isReconnecting,
+  error,
+  onSendAnswer,
+  onRestart,
+  onToken,
+  onCompleted,
+  onServerError,
+  onReconnecting,
+}) {
   const bottomRef = useRef(null);
+  const wasStreamingRef = useRef(isStreaming);
+
+  useResponseEventStream(streamTarget, {
+    onToken,
+    onCompleted,
+    onServerError,
+    onReconnecting,
+  });
+
+  const scrollToBottom = useCallback((behavior = 'auto') => {
+    bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+  }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+    const behavior = isStreaming && wasStreamingRef.current ? 'auto' : 'smooth';
+    scrollToBottom(behavior);
+    wasStreamingRef.current = isStreaming;
+  }, [messages, isStreaming, isReconnecting, scrollToBottom]);
+
+  const statusLabel = isReconnecting
+    ? 'Reconnecting…'
+    : isStreaming
+      ? 'typing…'
+      : 'online';
 
   return (
     <div className="chat-shell">
@@ -19,8 +51,12 @@ function ChatScreen({ messages, isLoading, error, onSendAnswer, onRestart }) {
             <div className="chat-header-text">
               <h2>AI Recruiter</h2>
               <span className="chat-status">
-                <span className={`status-dot ${isLoading ? 'status-dot--busy' : 'status-dot--online'}`} />
-                {isLoading ? 'reviewing your answer' : 'online'}
+                <span
+                  className={`status-dot ${
+                    isStreaming || isReconnecting ? 'status-dot--busy' : 'status-dot--online'
+                  }`}
+                />
+                {statusLabel}
               </span>
             </div>
           </div>
@@ -31,15 +67,20 @@ function ChatScreen({ messages, isLoading, error, onSendAnswer, onRestart }) {
 
         <div className="chat-messages">
           {messages.map((message) => (
-            <MessageBubble key={message.id} role={message.role} content={message.content} />
+            <MessageBubble
+              key={message.responseId ?? message.id}
+              role={message.role}
+              content={message.content}
+              isStreaming={message.isStreaming}
+              onRevealProgress={() => scrollToBottom('auto')}
+            />
           ))}
-          {isLoading && <TypingIndicator label="Recruiter is reviewing your answer…" />}
           <div ref={bottomRef} />
         </div>
 
         {error && <div className="chat-error">{error}</div>}
 
-        <ChatInput onSend={onSendAnswer} disabled={isLoading} />
+        <ChatInput onSend={onSendAnswer} disabled={isStreaming} isStreaming={isStreaming} />
       </div>
     </div>
   );

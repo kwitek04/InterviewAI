@@ -39,7 +39,8 @@ export function uploadCv(file, jobOffer) {
 }
 
 /**
- * Starts a new interview session grounded in the given CV. Returns { sessionId, question }.
+ * Starts a new interview session grounded in the given CV.
+ * Returns { sessionId, responseId, eventsUrl }.
  */
 export function startInterview(cvId) {
   return fetch(`${BASE_URL}/api/v1/sessions`, {
@@ -50,7 +51,7 @@ export function startInterview(cvId) {
 }
 
 /**
- * Submits the candidate's answer and returns the next { sessionId, question }.
+ * Submits the candidate's answer and returns { sessionId, responseId, eventsUrl }.
  */
 export function submitAnswer(sessionId, answer) {
   return fetch(`${BASE_URL}/api/v1/sessions/${sessionId}/answers`, {

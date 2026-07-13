@@ -1,5 +1,6 @@
 package com.interviewai.session.adapter.in.web;
 
+import com.interviewai.session.application.AcceptedGeneration;
 import com.interviewai.session.application.SessionApplicationService;
 import com.interviewai.session.application.SessionNotFoundException;
 import com.interviewai.session.domain.InterviewSession;
@@ -7,6 +8,7 @@ import com.interviewai.session.domain.SessionCommand;
 import com.interviewai.session.domain.SessionState;
 import com.interviewai.session.domain.SessionTransitionException;
 import com.interviewai.shared.CvId;
+import com.interviewai.shared.ResponseId;
 import com.interviewai.shared.SessionId;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,36 +61,38 @@ class SessionControllerIT {
     private SessionApplicationService sessionApplicationService;
 
     @Test
-    @DisplayName("POST /api/v1/sessions starts a session and returns 201 with its first question")
-    void startSession_returnsFirstQuestion() throws Exception {
+    @DisplayName("POST /api/v1/sessions starts a session and returns 201 with a response handle")
+    void startSession_returnsAcceptedGeneration() throws Exception {
         SessionId id = SessionId.generate();
-        InterviewSession session = InterviewSession.create(id)
-                .apply(new SessionCommand.StartInterview())
-                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
-        when(sessionApplicationService.startInterview(java.util.Optional.empty())).thenReturn(session);
+        ResponseId responseId = ResponseId.generate();
+        when(sessionApplicationService.startInterview(java.util.Optional.empty()))
+                .thenReturn(new AcceptedGeneration(id, responseId));
 
         mockMvc.perform(post("/api/v1/sessions"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
-                .andExpect(jsonPath("$.question").value("Tell me about yourself."));
+                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()))
+                .andExpect(jsonPath("$.eventsUrl").value(
+                        "/api/v1/sessions/%s/responses/%s/events".formatted(id.value(), responseId.value())));
     }
 
     @Test
     @DisplayName("POST /api/v1/sessions accepts optional cvId body")
     void startSession_withCvId_returnsCreated() throws Exception {
         SessionId id = SessionId.generate();
+        ResponseId responseId = ResponseId.generate();
         UUID cvId = UUID.randomUUID();
-        InterviewSession session = InterviewSession.create(id, new CvId(cvId))
-                .apply(new SessionCommand.StartInterview())
-                .apply(new SessionCommand.AskQuestion("Tell me about your Kafka project.", NOW));
-        when(sessionApplicationService.startInterview(eq(java.util.Optional.of(new CvId(cvId))))).thenReturn(session);
+        when(sessionApplicationService.startInterview(eq(java.util.Optional.of(new CvId(cvId)))))
+                .thenReturn(new AcceptedGeneration(id, responseId));
 
         mockMvc.perform(post("/api/v1/sessions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"cvId\":\"" + cvId + "\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
-                .andExpect(jsonPath("$.question").value("Tell me about your Kafka project."));
+                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()))
+                .andExpect(jsonPath("$.eventsUrl").value(
+                        "/api/v1/sessions/%s/responses/%s/events".formatted(id.value(), responseId.value())));
     }
 
     @Test
@@ -114,23 +118,21 @@ class SessionControllerIT {
     }
 
     @Test
-    @DisplayName("POST /api/v1/sessions/{id}/answers returns the next question")
-    void submitAnswer_returnsNextQuestion() throws Exception {
+    @DisplayName("POST /api/v1/sessions/{id}/answers returns 202 with a response handle")
+    void submitAnswer_returnsAcceptedGeneration() throws Exception {
         SessionId id = SessionId.generate();
-        InterviewSession session = InterviewSession.create(id)
-                .apply(new SessionCommand.StartInterview())
-                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW))
-                .apply(new SessionCommand.SubmitAnswer("I am a backend developer.", NOW))
-                .apply(new SessionCommand.AskQuestion("What is your experience with Spring Boot?", NOW));
+        ResponseId responseId = ResponseId.generate();
         when(sessionApplicationService.submitAnswer(eq(id), eq("I am a backend developer.")))
-                .thenReturn(session);
+                .thenReturn(new AcceptedGeneration(id, responseId));
 
         mockMvc.perform(post("/api/v1/sessions/{id}/answers", id.value())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"answer\":\"I am a backend developer.\"}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.sessionId").value(id.value().toString()))
-                .andExpect(jsonPath("$.question").value("What is your experience with Spring Boot?"));
+                .andExpect(jsonPath("$.responseId").value(responseId.value().toString()))
+                .andExpect(jsonPath("$.eventsUrl").value(
+                        "/api/v1/sessions/%s/responses/%s/events".formatted(id.value(), responseId.value())));
     }
 
     @Test
