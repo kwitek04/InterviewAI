@@ -16,6 +16,12 @@ spring:
     multipart:
       max-file-size: 5MB
       max-request-size: 6MB
+  modulith:
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: false
+      completion-mode: update
 
 interviewai:
   llm:

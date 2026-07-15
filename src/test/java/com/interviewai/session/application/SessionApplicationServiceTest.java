@@ -10,17 +10,20 @@ import com.interviewai.session.domain.SessionCommand;
 import com.interviewai.session.domain.SessionState;
 import com.interviewai.session.domain.SessionTransitionException;
 import com.interviewai.session.domain.Transcript;
+import com.interviewai.shared.InterviewCompletedEvent;
 import com.interviewai.shared.ResponseId;
 import com.interviewai.shared.SessionId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -28,10 +31,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -42,6 +48,7 @@ import static org.mockito.Mockito.when;
 class SessionApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-01-01T10:00:00Z");
+    private static final UUID FIXED_EVENT_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
     @Mock
     private SessionRepository sessionRepository;
@@ -55,18 +62,24 @@ class SessionApplicationServiceTest {
     @Mock
     private TransactionTemplate transactionTemplate;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private ControllableExecutor controllableExecutor;
     private SessionApplicationService service;
 
     @BeforeEach
     void setUp() {
         controllableExecutor = new ControllableExecutor();
+        Supplier<UUID> eventIdGenerator = () -> FIXED_EVENT_ID;
         service = new SessionApplicationService(
                 sessionRepository,
                 questionResponseStore,
                 questionGenerationCoordinator,
                 transactionTemplate,
                 controllableExecutor,
+                eventPublisher,
+                eventIdGenerator,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);
@@ -201,8 +214,8 @@ class SessionApplicationServiceTest {
     }
 
     @Test
-    @DisplayName("endInterview transitions an awaiting-answer session to Completed and persists it")
-    void endInterview_whenAwaitingAnswer_transitionsToCompletedAndPersists() {
+    @DisplayName("endInterview publishes one InterviewCompletedEvent with deterministic identifiers")
+    void endInterview_whenAwaitingAnswer_publishesDeterministicCompletionEvent() {
         SessionId id = SessionId.generate();
         InterviewSession awaitingAnswer = InterviewSession.create(id)
                 .apply(new SessionCommand.StartInterview())
@@ -212,7 +225,11 @@ class SessionApplicationServiceTest {
         InterviewSession result = service.endInterview(id);
 
         assertThat(result.state()).isEqualTo(new SessionState.Completed());
-        verify(sessionRepository).save(result);
+        ArgumentCaptor<InterviewCompletedEvent> eventCaptor = ArgumentCaptor.forClass(InterviewCompletedEvent.class);
+        InOrder order = inOrder(sessionRepository, eventPublisher);
+        order.verify(sessionRepository).save(result);
+        order.verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isEqualTo(new InterviewCompletedEvent(FIXED_EVENT_ID, id, NOW));
     }
 
     @Test
@@ -223,10 +240,11 @@ class SessionApplicationServiceTest {
 
         assertThatThrownBy(() -> service.endInterview(id)).isInstanceOf(SessionNotFoundException.class);
         verify(sessionRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
-    @DisplayName("endInterview when the session is not awaiting an answer throws SessionTransitionException")
+    @DisplayName("endInterview when the session is not awaiting an answer throws and publishes no event")
     void endInterview_whenNotAwaitingAnswer_throwsSessionTransitionException() {
         SessionId id = SessionId.generate();
         InterviewSession created = InterviewSession.create(id);
@@ -234,6 +252,35 @@ class SessionApplicationServiceTest {
 
         assertThatThrownBy(() -> service.endInterview(id)).isInstanceOf(SessionTransitionException.class);
         verify(sessionRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("endInterview after the session is already completed publishes no additional event")
+    void endInterview_whenAlreadyCompleted_throwsAndPublishesNoEvent() {
+        SessionId id = SessionId.generate();
+        InterviewSession completed = new InterviewSession(id, null, new SessionState.Completed(), Transcript.empty());
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(completed));
+
+        assertThatThrownBy(() -> service.endInterview(id)).isInstanceOf(SessionTransitionException.class);
+        verify(sessionRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("endInterview publishes no event when persistence fails")
+    void endInterview_whenPersistenceFails_publishesNoEvent() {
+        SessionId id = SessionId.generate();
+        InterviewSession awaitingAnswer = InterviewSession.create(id)
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about yourself.", NOW));
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(awaitingAnswer));
+        doThrow(new IllegalStateException("database unavailable")).when(sessionRepository).save(any());
+
+        assertThatThrownBy(() -> service.endInterview(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("database unavailable");
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
