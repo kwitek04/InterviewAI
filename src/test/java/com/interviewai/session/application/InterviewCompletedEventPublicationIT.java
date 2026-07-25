@@ -12,14 +12,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -29,14 +24,12 @@ import org.testcontainers.utility.DockerImageName;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @Testcontainers
-@Import(InterviewCompletedEventPublicationIT.TestListeners.class)
 class InterviewCompletedEventPublicationIT {
 
     private static final Instant QUESTION_TIME = Instant.parse("2026-01-01T10:00:00Z");
@@ -64,9 +57,6 @@ class InterviewCompletedEventPublicationIT {
     @Autowired
     private JdbcClient jdbcClient;
 
-    @Autowired
-    private RecordingCompletionListener recordingCompletionListener;
-
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -79,7 +69,7 @@ class InterviewCompletedEventPublicationIT {
         flushAndClear();
 
         List<Map<String, Object>> publications = jdbcClient.sql("""
-                        SELECT event_type, serialized_event, completion_date, status
+                        SELECT event_type, serialized_event, listener_id
                         FROM event_publication
                         WHERE serialized_event LIKE :sessionMarker
                         """)
@@ -91,12 +81,10 @@ class InterviewCompletedEventPublicationIT {
         Map<String, Object> publication = publications.getFirst();
         assertThat(publication.get("event_type")).isEqualTo(InterviewCompletedEvent.class.getName());
         assertThat((String) publication.get("serialized_event")).contains(sessionId.value().toString());
+        assertThat((String) publication.get("listener_id")).contains(InterviewCompletedSqsRelay.class.getName());
         assertThat(sessionRepository.findById(sessionId)).get()
                 .extracting(InterviewSession::state)
                 .isEqualTo(new SessionState.Completed());
-        assertThat(recordingCompletionListener.events())
-                .extracting(InterviewCompletedEvent::sessionId)
-                .contains(sessionId);
     }
 
     @Test
@@ -124,9 +112,6 @@ class InterviewCompletedEventPublicationIT {
                 .query(Integer.class)
                 .single();
         assertThat(publicationCount).isZero();
-        assertThat(recordingCompletionListener.events())
-                .extracting(InterviewCompletedEvent::sessionId)
-                .doesNotContain(sessionId);
     }
 
     private SessionId persistAwaitingAnswerSession() {
@@ -144,28 +129,5 @@ class InterviewCompletedEventPublicationIT {
             entityManager.flush();
             entityManager.clear();
         });
-    }
-
-    @TestConfiguration
-    static class TestListeners {
-
-        @Bean
-        RecordingCompletionListener recordingCompletionListener() {
-            return new RecordingCompletionListener();
-        }
-    }
-
-    static class RecordingCompletionListener {
-
-        private final List<InterviewCompletedEvent> events = new CopyOnWriteArrayList<>();
-
-        @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-        void onInterviewCompleted(InterviewCompletedEvent event) {
-            events.add(event);
-        }
-
-        List<InterviewCompletedEvent> events() {
-            return List.copyOf(events);
-        }
     }
 }

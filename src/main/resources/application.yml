@@ -22,6 +22,11 @@ spring:
         schema-initialization:
           enabled: false
       completion-mode: update
+      staleness:
+        published: 30s
+        processing: 30s
+        resubmitted: 30s
+        check-interval: 10s
 
 interviewai:
   llm:
@@ -38,6 +43,19 @@ interviewai:
       access-key: test
       secret-key: test
       path-style-access: true
+  messaging:
+    sqs:
+      endpoint: http://localhost:4566
+      region: eu-central-1
+      access-key: test
+      secret-key: test
+      queue-name: interview-completed
+      dlq-name: interview-completed-dlq
+      long-poll-duration: 20s
+      visibility-timeout: 2m
+      max-receive-count: 5
+      outbox-retry-interval: 10s
+      outbox-resubmission-batch-size: 50
   streaming:
     emitter-timeout: 5m
     poll-interval: 50ms
