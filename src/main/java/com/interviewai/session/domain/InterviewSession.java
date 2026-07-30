@@ -36,10 +36,10 @@ public record InterviewSession(SessionId id, CvId cvIdValue, SessionState state,
     /**
      * Applies a command to this session, producing its next state.
      * <p>
-     * {@link SessionState.Completed} and {@link SessionState.Cancelled} are terminal:
-     * every command applied to a session in either state throws
-     * {@link SessionTransitionException}, including a repeated end or cancel.
-     * Any other command that is invalid for the current state throws the same exception.
+     * {@link SessionState.Cancelled} and {@link SessionState.ReportReady} are terminal.
+     * {@link SessionState.Completed} accepts only {@link SessionCommand.MarkReportReady}.
+     * Any other command that is invalid for the current state throws
+     * {@link SessionTransitionException}.
      */
     public InterviewSession apply(SessionCommand command) {
         Objects.requireNonNull(command, "command must not be null");
@@ -47,7 +47,8 @@ public record InterviewSession(SessionId id, CvId cvIdValue, SessionState state,
             case SessionState.Created() -> applyToCreated(command);
             case SessionState.InProgress() -> applyToInProgress(command);
             case SessionState.AwaitingAnswer() -> applyToAwaitingAnswer(command);
-            case SessionState.Completed() -> applyToTerminalState(command);
+            case SessionState.Completed() -> applyToCompleted(command);
+            case SessionState.ReportReady() -> applyToTerminalState(command);
             case SessionState.Cancelled() -> applyToTerminalState(command);
         };
     }
@@ -77,6 +78,13 @@ public record InterviewSession(SessionId id, CvId cvIdValue, SessionState state,
                     new Message(MessageRole.CANDIDATE, submitAnswer.content(), submitAnswer.answeredAt()));
             case SessionCommand.EndInterview() -> withState(new SessionState.Completed());
             case SessionCommand.CancelInterview() -> withState(new SessionState.Cancelled());
+            default -> throw rejectedBy(command);
+        };
+    }
+
+    private InterviewSession applyToCompleted(SessionCommand command) {
+        return switch (command) {
+            case SessionCommand.MarkReportReady() -> withState(new SessionState.ReportReady());
             default -> throw rejectedBy(command);
         };
     }

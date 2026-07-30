@@ -320,6 +320,49 @@ class SessionApplicationServiceTest {
         verify(sessionRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("requireCompletedInterviewSnapshot returns paired Q&A for a completed session")
+    void requireCompletedInterviewSnapshot_whenCompleted_returnsPairedAnswers() {
+        SessionId id = SessionId.generate();
+        InterviewSession completed = InterviewSession.create(id)
+                .apply(new SessionCommand.StartInterview())
+                .apply(new SessionCommand.AskQuestion("Tell me about yourself", NOW))
+                .apply(new SessionCommand.SubmitAnswer("I am a backend developer", NOW.plusSeconds(30)))
+                .apply(new SessionCommand.AskQuestion("Describe a project", NOW.plusSeconds(60)))
+                .apply(new SessionCommand.EndInterview());
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(completed));
+
+        CompletedInterviewSnapshot snapshot = service.requireCompletedInterviewSnapshot(id);
+
+        assertThat(snapshot.answeredQuestions()).containsExactly(
+                new CompletedInterviewSnapshot.AnsweredQuestion(
+                        0, "Tell me about yourself", "I am a backend developer"));
+    }
+
+    @Test
+    @DisplayName("requireCompletedInterviewSnapshot rejects non-completed sessions")
+    void requireCompletedInterviewSnapshot_whenInProgress_throws() {
+        SessionId id = SessionId.generate();
+        InterviewSession inProgress = new InterviewSession(id, null, new SessionState.InProgress(), Transcript.empty());
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(inProgress));
+
+        assertThatThrownBy(() -> service.requireCompletedInterviewSnapshot(id))
+                .isInstanceOf(SessionNotCompletedException.class);
+    }
+
+    @Test
+    @DisplayName("markReportReady transitions Completed to ReportReady and persists")
+    void markReportReady_whenCompleted_persistsReportReady() {
+        SessionId id = SessionId.generate();
+        InterviewSession completed = new InterviewSession(id, null, new SessionState.Completed(), Transcript.empty());
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(completed));
+
+        InterviewSession result = service.markReportReady(id);
+
+        assertThat(result.state()).isEqualTo(new SessionState.ReportReady());
+        verify(sessionRepository).save(result);
+    }
+
     private QuestionResponse pendingResponse(SessionId sessionId, ResponseId responseId) {
         return new QuestionResponse(
                 responseId,

@@ -4,6 +4,7 @@ import com.interviewai.interview.application.port.out.QuestionResponseStore;
 import com.interviewai.session.application.port.out.SessionRepository;
 import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.session.domain.SessionCommand;
+import com.interviewai.session.domain.SessionState;
 import com.interviewai.shared.CvId;
 import com.interviewai.shared.InterviewCompletedEvent;
 import com.interviewai.shared.SessionId;
@@ -114,6 +115,29 @@ public class SessionApplicationService {
         questionResponseStore.findActiveBySessionId(id)
                 .ifPresent(response -> questionResponseStore.markCancelled(response.id()));
         return session;
+    }
+
+    /**
+     * Returns an immutable snapshot of answered Q&amp;A pairs for a completed interview.
+     */
+    public CompletedInterviewSnapshot requireCompletedInterviewSnapshot(SessionId id) {
+        InterviewSession session = loadOrThrow(id);
+        if (!(session.state() instanceof SessionState.Completed)
+                && !(session.state() instanceof SessionState.ReportReady)) {
+            throw new SessionNotCompletedException(id, session.state());
+        }
+        return CompletedInterviewSnapshots.from(session);
+    }
+
+    /**
+     * Marks a completed interview as having a ready report.
+     */
+    public InterviewSession markReportReady(SessionId id) {
+        return transactionTemplate.execute(status -> {
+            InterviewSession session = loadOrThrow(id).apply(new SessionCommand.MarkReportReady());
+            sessionRepository.save(session);
+            return session;
+        });
     }
 
     private InterviewSession loadOrThrow(SessionId id) {

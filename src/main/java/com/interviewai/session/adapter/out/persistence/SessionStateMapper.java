@@ -12,6 +12,7 @@ final class SessionStateMapper {
     private static final String IN_PROGRESS = "IN_PROGRESS";
     private static final String AWAITING_ANSWER = "AWAITING_ANSWER";
     private static final String COMPLETED = "COMPLETED";
+    private static final String REPORT_READY = "REPORT_READY";
     private static final String CANCELLED = "CANCELLED";
 
     private SessionStateMapper() {
@@ -23,6 +24,7 @@ final class SessionStateMapper {
             case SessionState.InProgress() -> IN_PROGRESS;
             case SessionState.AwaitingAnswer() -> AWAITING_ANSWER;
             case SessionState.Completed() -> COMPLETED;
+            case SessionState.ReportReady() -> REPORT_READY;
             case SessionState.Cancelled() -> CANCELLED;
         };
     }
@@ -33,6 +35,7 @@ final class SessionStateMapper {
             case IN_PROGRESS -> new SessionState.InProgress();
             case AWAITING_ANSWER -> new SessionState.AwaitingAnswer();
             case COMPLETED -> new SessionState.Completed();
+            case REPORT_READY -> new SessionState.ReportReady();
             case CANCELLED -> new SessionState.Cancelled();
             default -> throw new IllegalStateException("Unknown persisted session state: " + state);
         };

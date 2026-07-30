@@ -56,6 +56,13 @@ interviewai:
       max-receive-count: 5
       outbox-retry-interval: 10s
       outbox-resubmission-batch-size: 50
+  report:
+    llm:
+      base-url: http://127.0.0.1:11434
+      model-name: llama3.2:3b
+      timeout: 60s
+    generation:
+      max-attempts: 3
   streaming:
     emitter-timeout: 5m
     poll-interval: 50ms
