@@ -1,11 +1,11 @@
 package com.interviewai.session.application;
 
 import com.interviewai.cv.application.CvRetrievalService;
-import com.interviewai.interview.application.InvalidQuestionResponseStatusTransitionException;
 import com.interviewai.interview.application.QuestionGenerationException;
 import com.interviewai.interview.application.port.out.InterviewContext;
 import com.interviewai.interview.application.port.out.QuestionResponseStore;
 import com.interviewai.interview.application.port.out.StreamingQuestionGenerator;
+import com.interviewai.interview.domain.InvalidQuestionResponseStatusTransitionException;
 import com.interviewai.interview.domain.QuestionResponse;
 import com.interviewai.interview.domain.QuestionResponseStatus;
 import com.interviewai.session.application.port.out.SessionRepository;

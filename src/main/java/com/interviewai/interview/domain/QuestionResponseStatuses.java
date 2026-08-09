@@ -1,7 +1,5 @@
 package com.interviewai.interview.domain;
 
-import com.interviewai.interview.application.InvalidQuestionResponseStatusTransitionException;
-
 /**
  * Pure transition rules for {@link QuestionResponseStatus}.
  */

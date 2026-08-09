@@ -10,14 +10,16 @@ The backend is implemented as a modular monolith using hexagonal architecture an
 - **LangChain4j** (Ollama chat + embedding models)
 - **PostgreSQL** · **pgvector**
 - **Apache Tika** (PDF text extraction)
-- **AWS S3** via **LocalStack**
+- **AWS S3** and **AWS SQS** via **LocalStack**
 - **Ollama** `llama3.2:3b`, `nomic-embed-text`
 - **Testcontainers** (integration tests + eval harness)
 - **React 19** · **Vite**
 
 ## Architecture & Features
 
-The application is split into feature modules (`session`, `cv`, `interview`). Modules communicate through public application services and never access each other's persistence layer directly.
+The application is split into feature modules (`session`, `cv`, `interview`, `report`) on top of a small `shared` module holding cross-module ids and events. Modules communicate through public application services and never access each other's persistence layer directly; `ModuleBoundaryTest` enforces those boundaries on every build.
+
+Finishing an interview does not call the report generator directly. The session module writes an `InterviewCompletedEvent` to the Spring Modulith event publication registry inside the same transaction that completes the session, a relay forwards it to SQS, and a scheduled resubmission drains anything the broker rejected. Report generation therefore runs asynchronously and survives restarts of either side.
 
 **Implemented capabilities:**
 
@@ -26,6 +28,7 @@ The application is split into feature modules (`session`, `cv`, `interview`). Mo
 - **RAG-powered interviews** — session start accepts an optional cvId; for every interview question, the system retrieves the most relevant CV fragments together with the job offer
 - **Session state machine** — sealed interfaces, exhaustive transition tests, REST API for the full interview flow
 - **LLM eval harness** — automated grounding evaluation on 25 synthetic CVs with the results published as a CI artifact
+- **Asynchronous reports** — completed interviews are handed over through a transactional outbox and SQS, then scored and summarised by a two-stage structured LLM pipeline
 
 ## Quick Start
 
@@ -45,6 +48,14 @@ The application is split into feature modules (`session`, `cv`, `interview`). Mo
 
    API: `http://localhost:8080` · Swagger UI: `http://localhost:8080/swagger-ui.html`
 
+   The default profile runs the API, which serves HTTP and publishes interview-completed
+   events. Report generation runs in a second process started with the `worker` profile:
+
+   ```bash
+   mvn spring-boot:run -Dspring-boot.run.profiles=worker
+   ```
+
+   `docker compose up -d api worker` starts the same pair as containers.
 
 3. **Run the frontend:**
 

@@ -5,6 +5,7 @@ x-app-environment: &app-environment
   SPRING_DATASOURCE_USERNAME: interviewai
   SPRING_DATASOURCE_PASSWORD: interviewai
   INTERVIEWAI_LLM_OLLAMA_BASE_URL: http://ollama:11434
+  INTERVIEWAI_REPORT_LLM_BASE_URL: http://ollama:11434
   INTERVIEWAI_STORAGE_S3_ENDPOINT: http://localstack:4566
   INTERVIEWAI_MESSAGING_SQS_ENDPOINT: http://localstack:4566
 
@@ -94,6 +95,7 @@ services:
         condition: service_healthy
 
   worker:
+    build: .
     image: interviewai:local
     container_name: interviewai-worker
     environment:
@@ -105,6 +107,8 @@ services:
       postgres:
         condition: service_healthy
       localstack:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
 
 volumes:

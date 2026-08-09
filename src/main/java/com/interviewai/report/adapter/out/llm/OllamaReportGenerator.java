@@ -9,7 +9,6 @@ import com.interviewai.session.application.CompletedInterviewSnapshot;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.output.structured.Description;
 import dev.langchain4j.service.AiServices;
-import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 
@@ -25,8 +24,14 @@ class OllamaReportGenerator implements ReportGenerator {
 
     OllamaReportGenerator(ChatModel chatModel) {
         this(
-                AiServices.builder(Stage1Assistant.class).chatModel(chatModel).build(),
-                AiServices.builder(Stage2Assistant.class).chatModel(chatModel).build());
+                AiServices.builder(Stage1Assistant.class)
+                        .chatModel(chatModel)
+                        .systemMessage(ReportPromptAssembler.stage1SystemPrompt())
+                        .build(),
+                AiServices.builder(Stage2Assistant.class)
+                        .chatModel(chatModel)
+                        .systemMessage(ReportPromptAssembler.stage2SystemPrompt())
+                        .build());
     }
 
     OllamaReportGenerator(Stage1Assistant stage1Assistant, Stage2Assistant stage2Assistant) {
@@ -61,23 +66,12 @@ class OllamaReportGenerator implements ReportGenerator {
 
     interface Stage1Assistant {
 
-        @SystemMessage("""
-                You are an interview evaluator. Return structured JSON only.
-                Score each answered question from 1 to 5.
-                Provide a concise rationale for each score.
-                Keep questionIndex values aligned with the provided indexes.
-                """)
         @UserMessage("{{payload}}")
         AssessmentBatchDto evaluate(@V("payload") String payload);
     }
 
     interface Stage2Assistant {
 
-        @SystemMessage("""
-                You are an interview coach. Return structured JSON only.
-                Using the scored assessments, produce non-empty strengths, weaknesses,
-                and recommendations. Keep entries concise and non-duplicated.
-                """)
         @UserMessage("{{payload}}")
         SynthesisDto synthesize(@V("payload") String payload);
     }

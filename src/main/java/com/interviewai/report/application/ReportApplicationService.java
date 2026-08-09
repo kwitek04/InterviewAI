@@ -8,6 +8,8 @@ import com.interviewai.report.domain.ReportStatus;
 import com.interviewai.session.application.CompletedInterviewSnapshot;
 import com.interviewai.session.application.SessionApplicationService;
 import com.interviewai.shared.SessionId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -21,6 +23,8 @@ import java.util.function.Supplier;
  */
 @Service
 public class ReportApplicationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ReportApplicationService.class);
 
     private final SessionApplicationService sessionApplicationService;
     private final ReportRepository reportRepository;
@@ -55,6 +59,7 @@ public class ReportApplicationService {
 
         InterviewReport existing = reportRepository.findBySessionId(sessionId).orElse(null);
         if (existing != null && existing.isReady()) {
+            sessionApplicationService.markReportReady(sessionId);
             return existing;
         }
 
@@ -88,10 +93,12 @@ public class ReportApplicationService {
             });
             return ready;
         } catch (RuntimeException exception) {
+            log.warn("Report generation failed for session {}", sessionId.value(), exception);
             transactionTemplate.executeWithoutResult(status -> reportRepository.findById(generating.id())
                     .ifPresent(current -> {
                         if (current.status() == ReportStatus.GENERATING || current.status() == ReportStatus.PENDING) {
-                            reportRepository.save(current.markFailed(safeFailureMessage(exception), clock.instant()));
+                            reportRepository.save(
+                                    current.markFailed(ReportFailureMessages.of(exception), clock.instant()));
                         }
                     }));
             if (exception instanceof ReportGenerationException reportGenerationException) {
@@ -118,13 +125,5 @@ public class ReportApplicationService {
         throw new ReportGenerationException(
                 "Report stage '" + stageName + "' failed after " + properties.maxAttempts() + " attempts",
                 lastFailure);
-    }
-
-    private static String safeFailureMessage(RuntimeException exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return "Report generation failed.";
-        }
-        return message.length() > 500 ? message.substring(0, 500) : message;
     }
 }

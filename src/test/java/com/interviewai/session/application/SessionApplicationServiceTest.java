@@ -363,6 +363,20 @@ class SessionApplicationServiceTest {
         verify(sessionRepository).save(result);
     }
 
+    @Test
+    @DisplayName("markReportReady on an already report-ready session is a no-op")
+    void markReportReady_whenAlreadyReportReady_doesNotPersistAgain() {
+        SessionId id = SessionId.generate();
+        InterviewSession reportReady =
+                new InterviewSession(id, null, new SessionState.ReportReady(), Transcript.empty());
+        when(sessionRepository.findById(id)).thenReturn(Optional.of(reportReady));
+
+        InterviewSession result = service.markReportReady(id);
+
+        assertThat(result).isSameAs(reportReady);
+        verify(sessionRepository, never()).save(any());
+    }
+
     private QuestionResponse pendingResponse(SessionId sessionId, ResponseId responseId) {
         return new QuestionResponse(
                 responseId,

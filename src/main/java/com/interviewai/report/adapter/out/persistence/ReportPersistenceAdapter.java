@@ -5,6 +5,7 @@ import com.interviewai.report.domain.InterviewReport;
 import com.interviewai.report.domain.QuestionAssessment;
 import com.interviewai.report.domain.ReportStatus;
 import com.interviewai.shared.SessionId;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -30,6 +31,7 @@ class ReportPersistenceAdapter implements ReportRepository {
     public InterviewReport save(InterviewReport report) {
         Objects.requireNonNull(report, "report must not be null");
         InterviewReportEntity entity = repository.findById(report.id())
+                .map(stored -> requireExpectedVersion(stored, report))
                 .orElseGet(() -> InterviewReportEntity.create(
                         report.id(),
                         report.sessionId().value(),
@@ -69,6 +71,18 @@ class ReportPersistenceAdapter implements ReportRepository {
     public Optional<InterviewReport> findBySessionId(SessionId sessionId) {
         Objects.requireNonNull(sessionId, "sessionId must not be null");
         return repository.findBySessionId(sessionId.value()).map(this::toDomain);
+    }
+
+    /**
+     * Rejects writes derived from an aggregate that was read before a concurrent update,
+     * so a stale in-memory report cannot silently overwrite newer state.
+     */
+    private static InterviewReportEntity requireExpectedVersion(
+            InterviewReportEntity stored, InterviewReport report) {
+        if (stored.getVersion() != report.version()) {
+            throw new ObjectOptimisticLockingFailureException(InterviewReport.class, report.id());
+        }
+        return stored;
     }
 
     private InterviewReport toDomain(InterviewReportEntity entity) {

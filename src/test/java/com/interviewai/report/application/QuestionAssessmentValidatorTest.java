@@ -79,9 +79,14 @@ class QuestionAssessmentValidatorTest {
                                 new ScoredAnswer(1, 3, "Ok"),
                                 new ScoredAnswer(0, 4, "Good"))),
                 Arguments.of(
-                        "wrong first index",
+                        "duplicate index",
                         List.of(
-                                new ScoredAnswer(1, 4, "Good"),
-                                new ScoredAnswer(1, 3, "Ok"))));
+                                new ScoredAnswer(0, 4, "Good"),
+                                new ScoredAnswer(0, 3, "Duplicate"))),
+                Arguments.of(
+                        "index outside the transcript",
+                        List.of(
+                                new ScoredAnswer(0, 4, "Good"),
+                                new ScoredAnswer(5, 3, "Ok"))));
     }
 }

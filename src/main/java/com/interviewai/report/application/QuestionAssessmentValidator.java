@@ -4,10 +4,8 @@ import com.interviewai.report.domain.QuestionAssessment;
 import com.interviewai.session.application.CompletedInterviewSnapshot;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Validates stage-1 scored answers and binds them to transcript question/answer text.
@@ -50,7 +48,6 @@ public final class QuestionAssessmentValidator {
                     "Expected " + expectedCount + " assessments but received " + scoredAnswers.size());
         }
 
-        Set<Integer> seenIndexes = new HashSet<>();
         List<QuestionAssessment> assessments = new ArrayList<>(expectedCount);
         for (int i = 0; i < scoredAnswers.size(); i++) {
             ScoredAnswer scored = Objects.requireNonNull(scoredAnswers.get(i), "scored answer must not be null");
@@ -59,15 +56,6 @@ public final class QuestionAssessmentValidator {
                         "Assessments must be ordered by questionIndex; expected " + i
                                 + " but was " + scored.questionIndex());
             }
-            if (!seenIndexes.add(scored.questionIndex())) {
-                throw new InvalidReportContentException(
-                        "Duplicate assessment for questionIndex " + scored.questionIndex());
-            }
-            if (scored.questionIndex() >= expectedCount) {
-                throw new InvalidReportContentException(
-                        "Unexpected questionIndex " + scored.questionIndex());
-            }
-
             CompletedInterviewSnapshot.AnsweredQuestion pair = snapshot.answeredQuestions().get(i);
             assessments.add(new QuestionAssessment(
                     pair.questionIndex(),
@@ -75,10 +63,6 @@ public final class QuestionAssessmentValidator {
                     pair.answer(),
                     scored.score(),
                     scored.rationale().trim()));
-        }
-
-        if (seenIndexes.size() != expectedCount) {
-            throw new InvalidReportContentException("Assessment indexes do not cover the transcript");
         }
         return List.copyOf(assessments);
     }

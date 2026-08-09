@@ -30,14 +30,17 @@ class SqsQueueInitializer implements SmartInitializingSingleton {
         this.properties = properties;
     }
 
+    /**
+     * Unreachable SQS is tolerated so the application can start without messaging infrastructure,
+     * but an existing queue with incompatible attributes is a misconfiguration and fails startup.
+     */
     @Override
     public void afterSingletonsInstantiated() {
         try {
             ensureQueuesExist();
-        } catch (SdkException | IllegalStateException exception) {
-            log.warn("Could not verify or create SQS queues '{}/{}'; "
-                            + "interview completion publishing will fail until SQS is reachable "
-                            + "with compatible queue attributes.",
+        } catch (SdkException exception) {
+            log.warn("Could not reach SQS to verify or create queues '{}/{}'; "
+                            + "interview completion publishing will fail until SQS is reachable.",
                     properties.queueName(), properties.dlqName(), exception);
         }
     }

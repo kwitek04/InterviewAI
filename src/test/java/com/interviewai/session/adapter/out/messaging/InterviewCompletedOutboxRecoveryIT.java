@@ -1,6 +1,5 @@
 package com.interviewai.session.adapter.out.messaging;
 
-import com.interviewai.session.application.InterviewCompletedMessageMapper;
 import com.interviewai.session.application.SessionApplicationService;
 import com.interviewai.session.application.port.out.CompletedInterviewPublisher;
 import com.interviewai.session.application.port.out.SessionRepository;
@@ -16,9 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.modulith.events.FailedEventPublications;
-import org.springframework.modulith.events.IncompleteEventPublications;
-import org.springframework.modulith.events.ResubmissionOptions;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -29,29 +25,27 @@ import org.testcontainers.localstack.LocalStackContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.services.sqs.SqsClient;
-import software.amazon.awssdk.services.sqs.model.GetQueueAttributesRequest;
-import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
-import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
+/**
+ * Covers recovery that must happen on its own: the staleness monitor promoting abandoned
+ * publications to FAILED and the scheduled resubmission draining them, with no operator
+ * or test code triggering the Modulith resubmission APIs.
+ */
 @SpringBootTest
 @Testcontainers
-class InterviewCompletedSqsRelayIT {
+class InterviewCompletedOutboxRecoveryIT {
 
     private static final Instant QUESTION_TIME = Instant.parse("2026-01-01T10:00:00Z");
-    private static final Duration MESSAGE_WAIT = Duration.ofSeconds(20);
-    private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
+    private static final Duration RECOVERY_WAIT = Duration.ofSeconds(60);
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
@@ -80,11 +74,11 @@ class InterviewCompletedSqsRelayIT {
         registry.add("interviewai.messaging.sqs.long-poll-duration", () -> "1s");
         registry.add("interviewai.messaging.sqs.visibility-timeout", () -> "30s");
         registry.add("interviewai.messaging.sqs.max-receive-count", () -> "3");
-        registry.add("interviewai.messaging.sqs.outbox-retry-interval", () -> "1h");
-        registry.add("spring.modulith.events.staleness.processing", () -> "1h");
-        registry.add("spring.modulith.events.staleness.published", () -> "1h");
-        registry.add("spring.modulith.events.staleness.resubmitted", () -> "1h");
-        registry.add("spring.modulith.events.staleness.check-interval", () -> "1h");
+        registry.add("interviewai.messaging.sqs.outbox-retry-interval", () -> "1s");
+        registry.add("spring.modulith.events.staleness.processing", () -> "2s");
+        registry.add("spring.modulith.events.staleness.published", () -> "2s");
+        registry.add("spring.modulith.events.staleness.resubmitted", () -> "2s");
+        registry.add("spring.modulith.events.staleness.check-interval", () -> "1s");
     }
 
     @Autowired
@@ -105,12 +99,6 @@ class InterviewCompletedSqsRelayIT {
     @Autowired
     private SqsMessagingProperties properties;
 
-    @Autowired
-    private FailedEventPublications failedEventPublications;
-
-    @Autowired
-    private IncompleteEventPublications incompleteEventPublications;
-
     @MockitoBean
     private CompletedInterviewPublisher completedInterviewPublisher;
 
@@ -121,44 +109,14 @@ class InterviewCompletedSqsRelayIT {
 
     @BeforeEach
     void setUp() {
-        outbox = new OutboxSqsTestSupport(sqsClient, jdbcClient, MESSAGE_WAIT);
-        doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
-                .when(completedInterviewPublisher).publish(any());
+        outbox = new OutboxSqsTestSupport(sqsClient, jdbcClient, RECOVERY_WAIT);
         outbox.purgeQueue(properties.queueName());
         outbox.purgeQueue(properties.dlqName());
     }
 
     @Test
-    @DisplayName("ending an interview delivers one SQS message with the versioned contract")
-    void endInterview_deliversExactSqsContract() {
-        SessionId sessionId = persistAwaitingAnswerSession();
-        Instant beforeCompletion = Instant.now();
-
-        sessionApplicationService.endInterview(sessionId);
-
-        Message message = outbox.awaitMessage(properties.queueName());
-        JsonNode body = JSON_MAPPER.readTree(message.body());
-        assertThat(body.propertyNames())
-                .containsExactlyInAnyOrder("schemaVersion", "eventId", "eventType", "sessionId", "completedAt");
-        assertThat(body.get("schemaVersion").asInt()).isEqualTo(InterviewCompletedMessageMapper.SCHEMA_VERSION);
-        assertThat(body.get("eventType").asString()).isEqualTo(InterviewCompletedMessageMapper.EVENT_TYPE);
-        assertThat(body.get("sessionId").asString()).isEqualTo(sessionId.value().toString());
-        assertThat(UUID.fromString(body.get("eventId").asString())).isNotNull();
-        assertThat(Instant.parse(body.get("completedAt").asString())).isAfterOrEqualTo(beforeCompletion);
-
-        assertThat(message.messageAttributes().get("contentType").stringValue())
-                .isEqualTo(InterviewCompletedMessageMapper.CONTENT_TYPE_JSON);
-        assertThat(message.messageAttributes().get("eventType").stringValue())
-                .isEqualTo(InterviewCompletedMessageMapper.EVENT_TYPE);
-        assertThat(message.messageAttributes().get("schemaVersion").stringValue())
-                .isEqualTo(Integer.toString(InterviewCompletedMessageMapper.SCHEMA_VERSION));
-
-        outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
-    }
-
-    @Test
-    @DisplayName("a temporary SQS failure leaves the outbox incomplete and recovers after resubmission")
-    void endInterview_recoversAfterTemporarySqsFailure() {
+    @DisplayName("a temporary broker outage is drained by the scheduled resubmission alone")
+    void temporaryPublisherFailure_isRetriedByTheScheduler() {
         SessionId sessionId = persistAwaitingAnswerSession();
         doThrow(new IllegalStateException("SQS unavailable"))
                 .doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
@@ -166,23 +124,16 @@ class InterviewCompletedSqsRelayIT {
 
         sessionApplicationService.endInterview(sessionId);
 
-        outbox.awaitUntil(() -> outbox.incompletePublicationCount(sessionId) == 1);
-        assertThat(outbox.receiveOnce(properties.queueName())).isEmpty();
-
-        failedEventPublications.resubmit(ResubmissionOptions.defaults().withBatchSize(10));
-
         Message message = outbox.awaitMessage(properties.queueName());
         assertThat(message.body()).contains("\"sessionId\":\"" + sessionId.value() + "\"");
         outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
     }
 
     @Test
-    @DisplayName("a stale PROCESSING publication is recovered after simulated relay crash")
-    void staleProcessingPublication_isRecovered() {
+    @DisplayName("a publication abandoned in PROCESSING is recovered without operator action")
+    void staleProcessingPublication_isRecoveredWithoutOperatorAction() {
         SessionId sessionId = persistAwaitingAnswerSession();
-        doThrow(new IllegalStateException("relay crashed"))
-                .doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
-                .when(completedInterviewPublisher).publish(any());
+        doThrow(new IllegalStateException("relay crashed")).when(completedInterviewPublisher).publish(any());
 
         sessionApplicationService.endInterview(sessionId);
         outbox.awaitUntil(() -> outbox.incompletePublicationCount(sessionId) == 1);
@@ -190,37 +141,12 @@ class InterviewCompletedSqsRelayIT {
         outbox.markStuckInProcessing(sessionId, Duration.ofMinutes(5));
         assertThat(outbox.processingPublicationCount(sessionId)).isOne();
 
-        incompleteEventPublications.resubmitIncompletePublications(
-                ResubmissionOptions.defaults().withBatchSize(10));
+        doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
+                .when(completedInterviewPublisher).publish(any());
 
         Message message = outbox.awaitMessage(properties.queueName());
         assertThat(message.body()).contains("\"sessionId\":\"" + sessionId.value() + "\"");
         outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
-    }
-
-    @Test
-    @DisplayName("the interview-completed queue redrive policy points at the DLQ with the configured receive count")
-    void queue_hasConfiguredRedrivePolicy() {
-        String dlqArn = sqsClient.getQueueAttributes(GetQueueAttributesRequest.builder()
-                        .queueUrl(sqsClient.getQueueUrl(GetQueueUrlRequest.builder()
-                                        .queueName(properties.dlqName())
-                                        .build())
-                                .queueUrl())
-                        .attributeNames(QueueAttributeName.QUEUE_ARN)
-                        .build())
-                .attributes()
-                .get(QueueAttributeName.QUEUE_ARN);
-
-        String redrivePolicy = sqsClient.getQueueAttributes(GetQueueAttributesRequest.builder()
-                        .queueUrl(outbox.queueUrl(properties.queueName()))
-                        .attributeNames(QueueAttributeName.REDRIVE_POLICY)
-                        .build())
-                .attributes()
-                .get(QueueAttributeName.REDRIVE_POLICY);
-
-        assertThat(redrivePolicy).contains(dlqArn);
-        assertThat(redrivePolicy).contains("\"maxReceiveCount\"");
-        assertThat(redrivePolicy).contains(Integer.toString(properties.maxReceiveCount()));
     }
 
     private Object publishForReal(InterviewCompletedEvent event) {

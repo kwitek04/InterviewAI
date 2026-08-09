@@ -113,8 +113,4 @@ class InterviewReportEntity {
     long getVersion() {
         return version;
     }
-
-    void setVersion(long version) {
-        this.version = version;
-    }
 }

@@ -18,8 +18,8 @@ public final class ReportPromptAssembler {
         return """
                 You are an interview evaluator. Return structured JSON only.
                 Score each answered question from 1 to 5.
-                Keep the original question and answer text unchanged.
                 Provide a concise rationale for each score.
+                Return one assessment per question, ordered by the provided zero-based index.
                 """.stripIndent().trim();
     }
 

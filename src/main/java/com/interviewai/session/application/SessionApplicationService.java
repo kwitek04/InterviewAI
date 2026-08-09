@@ -130,13 +130,18 @@ public class SessionApplicationService {
     }
 
     /**
-     * Marks a completed interview as having a ready report.
+     * Marks a completed interview as having a ready report. Idempotent, so redelivered
+     * interview-completed messages cannot fail on an already report-ready session.
      */
     public InterviewSession markReportReady(SessionId id) {
         return transactionTemplate.execute(status -> {
-            InterviewSession session = loadOrThrow(id).apply(new SessionCommand.MarkReportReady());
-            sessionRepository.save(session);
-            return session;
+            InterviewSession session = loadOrThrow(id);
+            if (session.state() instanceof SessionState.ReportReady) {
+                return session;
+            }
+            InterviewSession reportReady = session.apply(new SessionCommand.MarkReportReady());
+            sessionRepository.save(reportReady);
+            return reportReady;
         });
     }
 

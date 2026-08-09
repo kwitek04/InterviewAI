@@ -50,6 +50,7 @@ class ReportApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-07-30T12:00:00Z");
     private static final SessionId SESSION_ID = SessionId.generate();
+    private static final String RAW_PROVIDER_DETAIL = "verbatim-model-output-that-must-not-be-persisted";
 
     @Mock
     private SessionApplicationService sessionApplicationService;
@@ -206,7 +207,89 @@ class ReportApplicationServiceTest {
 
         assertThat(result).isSameAs(ready);
         verify(reportGenerator, never()).evaluateAnswers(any());
+        verify(sessionApplicationService).markReportReady(SESSION_ID);
+    }
+
+    @Test
+    @DisplayName("exhausted stage 2 retries mark the report FAILED and leave the session untouched")
+    void generateReport_whenStage2RetriesExhausted_marksFailed() {
+        CompletedInterviewSnapshot snapshot = snapshot();
+        stubPendingReportFor(snapshot);
+        when(reportGenerator.evaluateAnswers(snapshot)).thenReturn(List.of(
+                new ScoredAnswer(0, 4, "Solid"),
+                new ScoredAnswer(1, 3, "Ok")));
+        when(reportGenerator.synthesize(eq(snapshot), any()))
+                .thenThrow(new IllegalStateException("ollama returned: " + RAW_PROVIDER_DETAIL));
+
+        assertThatThrownBy(() -> service.generateReport(SESSION_ID))
+                .isInstanceOf(ReportGenerationException.class);
+
+        verify(reportGenerator, times(3)).synthesize(eq(snapshot), any());
         verify(sessionApplicationService, never()).markReportReady(any());
+
+        ArgumentCaptor<InterviewReport> saved = ArgumentCaptor.forClass(InterviewReport.class);
+        verify(reportRepository, times(2)).save(saved.capture());
+        InterviewReport failed = saved.getAllValues().getLast();
+        assertThat(failed.status()).isEqualTo(ReportStatus.FAILED);
+        assertThat(failed.failureMessage()).isEqualTo(ReportFailureMessages.GENERATION_FAILED);
+        assertThat(failed.failureMessage()).doesNotContain(RAW_PROVIDER_DETAIL);
+    }
+
+    @Test
+    @DisplayName("a transient stage 2 failure is retried and still produces a READY report")
+    void generateReport_whenStage2RecoversWithinBound_marksReady() {
+        CompletedInterviewSnapshot snapshot = snapshot();
+        stubPendingReportFor(snapshot);
+        when(reportGenerator.evaluateAnswers(snapshot)).thenReturn(List.of(
+                new ScoredAnswer(0, 4, "Solid"),
+                new ScoredAnswer(1, 3, "Ok")));
+
+        AtomicInteger attempts = new AtomicInteger();
+        when(reportGenerator.synthesize(eq(snapshot), any())).thenAnswer(invocation -> {
+            if (attempts.incrementAndGet() < 2) {
+                throw new IllegalStateException("transient");
+            }
+            return SynthesisResult.validated(
+                    List.of("Clear communicator"),
+                    List.of("Needs more depth"),
+                    List.of("Prepare examples"));
+        });
+        when(sessionApplicationService.markReportReady(SESSION_ID)).thenReturn(
+                new InterviewSession(SESSION_ID, null, new SessionState.ReportReady(), Transcript.empty()));
+
+        InterviewReport result = service.generateReport(SESSION_ID);
+
+        assertThat(result.status()).isEqualTo(ReportStatus.READY);
+        verify(reportGenerator, times(2)).synthesize(eq(snapshot), any());
+        verify(reportGenerator, times(1)).evaluateAnswers(snapshot);
+    }
+
+    @Test
+    @DisplayName("invalid generated content is stored as a validation failure, not as provider output")
+    void generateReport_whenContentInvalid_storesSanitizedValidationMessage() {
+        CompletedInterviewSnapshot snapshot = snapshot();
+        stubPendingReportFor(snapshot);
+        when(reportGenerator.evaluateAnswers(snapshot))
+                .thenThrow(new InvalidReportContentException("model returned: " + RAW_PROVIDER_DETAIL));
+
+        assertThatThrownBy(() -> service.generateReport(SESSION_ID))
+                .isInstanceOf(ReportGenerationException.class);
+
+        ArgumentCaptor<InterviewReport> saved = ArgumentCaptor.forClass(InterviewReport.class);
+        verify(reportRepository, times(2)).save(saved.capture());
+        InterviewReport failed = saved.getAllValues().getLast();
+        assertThat(failed.failureMessage()).isEqualTo(ReportFailureMessages.INVALID_CONTENT);
+        assertThat(failed.failureMessage()).doesNotContain(RAW_PROVIDER_DETAIL);
+    }
+
+    private void stubPendingReportFor(CompletedInterviewSnapshot snapshot) {
+        when(sessionApplicationService.requireCompletedInterviewSnapshot(SESSION_ID)).thenReturn(snapshot);
+        when(reportRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.empty());
+        when(reportRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reportRepository.findById(any())).thenAnswer(invocation -> {
+            UUID id = invocation.getArgument(0);
+            return Optional.of(InterviewReport.pending(id, SESSION_ID, NOW).markGenerating(NOW));
+        });
     }
 
     private static CompletedInterviewSnapshot snapshot() {

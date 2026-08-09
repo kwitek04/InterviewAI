@@ -126,6 +126,26 @@ class ReportPersistenceAdapterIT {
     }
 
     @Test
+    @DisplayName("saving a report read before a concurrent update is rejected by the port")
+    void save_staleAggregateThroughPort_throwsOptimisticLock() {
+        SessionId sessionId = persistCompletedSession();
+        InterviewReport pending = InterviewReport.pending(UUID.randomUUID(), sessionId, NOW);
+        reportAdapter.save(pending);
+        flushAndClear();
+
+        InterviewReport staleReader = reportAdapter.findById(pending.id()).orElseThrow();
+        InterviewReport winner = reportAdapter.findById(pending.id()).orElseThrow();
+
+        reportAdapter.save(winner.markGenerating(NOW.plusSeconds(1)));
+        flushAndClear();
+
+        assertThat(reportAdapter.findById(pending.id()).orElseThrow().status())
+                .isEqualTo(ReportStatus.GENERATING);
+        assertThatThrownBy(() -> reportAdapter.save(staleReader.markFailed("stale writer", NOW.plusSeconds(2))))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+    }
+
+    @Test
     @DisplayName("concurrent updates with a stale version fail optimistic locking")
     void save_withStaleVersion_throwsOptimisticLock() {
         SessionId sessionId = persistCompletedSession();
