@@ -31,6 +31,7 @@ class WorkerRuntimeProfileIT {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("interviewai.report.worker.enabled", () -> "false");
     }
 
     @Autowired
@@ -45,6 +46,7 @@ class WorkerRuntimeProfileIT {
         assertThat(environment.getActiveProfiles()).contains("worker");
         assertThat(environment.getProperty("spring.main.web-application-type")).isEqualTo("none");
         assertThat(applicationContext.getBeansOfType(InterviewCompletedQueueConsumer.class)).hasSize(1);
+        assertThat(applicationContext.getBean(InterviewCompletedQueueConsumer.class).isEnabled()).isFalse();
         assertThat(applicationContext.getBeansOfType(RequestMappingHandlerMapping.class)).isEmpty();
     }
 }

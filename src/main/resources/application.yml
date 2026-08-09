@@ -63,6 +63,15 @@ interviewai:
       timeout: 60s
     generation:
       max-attempts: 3
+    worker:
+      enabled: true
+      claim-lease: 90s
+      visibility-extension-interval: 20s
+      queue-name: ${interviewai.messaging.sqs.queue-name}
+      dlq-name: ${interviewai.messaging.sqs.dlq-name}
+      long-poll-duration: ${interviewai.messaging.sqs.long-poll-duration}
+      visibility-timeout: ${interviewai.messaging.sqs.visibility-timeout}
+      max-receive-count: ${interviewai.messaging.sqs.max-receive-count}
   streaming:
     emitter-timeout: 5m
     poll-interval: 50ms

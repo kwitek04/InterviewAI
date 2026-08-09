@@ -1,6 +1,7 @@
 package com.interviewai.report.application;
 
 import com.interviewai.report.application.QuestionAssessmentValidator.ScoredAnswer;
+import com.interviewai.report.application.port.out.ProcessedEventStore;
 import com.interviewai.report.application.port.out.ReportGenerator;
 import com.interviewai.report.application.port.out.ReportRepository;
 import com.interviewai.report.domain.InterviewReport;
@@ -62,6 +63,9 @@ class ReportApplicationServiceTest {
     private ReportGenerator reportGenerator;
 
     @Mock
+    private ProcessedEventStore processedEventStore;
+
+    @Mock
     private TransactionTemplate transactionTemplate;
 
     private ReportApplicationService service;
@@ -72,6 +76,7 @@ class ReportApplicationServiceTest {
                 sessionApplicationService,
                 reportRepository,
                 reportGenerator,
+                processedEventStore,
                 new ReportGenerationProperties(3),
                 transactionTemplate,
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -113,6 +118,35 @@ class ReportApplicationServiceTest {
         assertThat(result.assessments()).hasSize(2);
         verify(sessionApplicationService).markReportReady(SESSION_ID);
         verify(reportGenerator).synthesize(eq(snapshot), any());
+        verify(processedEventStore, never()).markCompleted(any(), any());
+    }
+
+    @Test
+    @DisplayName("successful generation with a claim marks the claim completed in the ready transaction")
+    void generateReport_withClaim_marksProcessedEventCompleted() {
+        CompletedInterviewSnapshot snapshot = snapshot();
+        UUID eventId = UUID.randomUUID();
+        when(sessionApplicationService.requireCompletedInterviewSnapshot(SESSION_ID)).thenReturn(snapshot);
+        when(reportRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.empty());
+        when(reportRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reportRepository.findById(any())).thenAnswer(invocation -> {
+            UUID id = invocation.getArgument(0);
+            return Optional.of(InterviewReport.pending(id, SESSION_ID, NOW).markGenerating(NOW));
+        });
+        when(reportGenerator.evaluateAnswers(snapshot)).thenReturn(List.of(
+                new ScoredAnswer(0, 4, "Solid"),
+                new ScoredAnswer(1, 3, "Ok")));
+        when(reportGenerator.synthesize(eq(snapshot), any())).thenReturn(SynthesisResult.validated(
+                List.of("Clear communicator"),
+                List.of("Needs more depth"),
+                List.of("Prepare examples")));
+        when(sessionApplicationService.markReportReady(SESSION_ID)).thenReturn(
+                new InterviewSession(SESSION_ID, null, new SessionState.ReportReady(), Transcript.empty()));
+
+        InterviewReport result = service.generateReport(SESSION_ID, eventId, "worker-1");
+
+        assertThat(result.status()).isEqualTo(ReportStatus.READY);
+        verify(processedEventStore).markCompleted(eventId, "worker-1");
     }
 
     @Test
