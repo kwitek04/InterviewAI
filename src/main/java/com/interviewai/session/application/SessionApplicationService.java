@@ -4,15 +4,20 @@ import com.interviewai.interview.application.port.out.QuestionResponseStore;
 import com.interviewai.session.application.port.out.SessionRepository;
 import com.interviewai.session.domain.InterviewSession;
 import com.interviewai.session.domain.SessionCommand;
+import com.interviewai.session.domain.SessionState;
 import com.interviewai.shared.CvId;
+import com.interviewai.shared.InterviewCompletedEvent;
 import com.interviewai.shared.SessionId;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 
 /**
  * Orchestrates interview session use cases and accepts asynchronous question generation.
@@ -25,6 +30,8 @@ public class SessionApplicationService {
     private final QuestionGenerationCoordinator questionGenerationCoordinator;
     private final TransactionTemplate transactionTemplate;
     private final Executor questionGenerationExecutor;
+    private final ApplicationEventPublisher eventPublisher;
+    private final Supplier<UUID> eventIdGenerator;
     private final Clock clock;
 
     public SessionApplicationService(
@@ -33,12 +40,16 @@ public class SessionApplicationService {
             QuestionGenerationCoordinator questionGenerationCoordinator,
             TransactionTemplate transactionTemplate,
             @Qualifier("questionGenerationExecutor") Executor questionGenerationExecutor,
+            ApplicationEventPublisher eventPublisher,
+            Supplier<UUID> eventIdGenerator,
             Clock clock) {
         this.sessionRepository = sessionRepository;
         this.questionResponseStore = questionResponseStore;
         this.questionGenerationCoordinator = questionGenerationCoordinator;
         this.transactionTemplate = transactionTemplate;
         this.questionGenerationExecutor = questionGenerationExecutor;
+        this.eventPublisher = eventPublisher;
+        this.eventIdGenerator = eventIdGenerator;
         this.clock = clock;
     }
 
@@ -87,9 +98,12 @@ public class SessionApplicationService {
      * Ends the given session, marking the interview as completed.
      */
     public InterviewSession endInterview(SessionId id) {
-        InterviewSession session = loadOrThrow(id).apply(new SessionCommand.EndInterview());
-        sessionRepository.save(session);
-        return session;
+        return transactionTemplate.execute(status -> {
+            InterviewSession session = loadOrThrow(id).apply(new SessionCommand.EndInterview());
+            sessionRepository.save(session);
+            eventPublisher.publishEvent(new InterviewCompletedEvent(eventIdGenerator.get(), id, clock.instant()));
+            return session;
+        });
     }
 
     /**
@@ -101,6 +115,48 @@ public class SessionApplicationService {
         questionResponseStore.findActiveBySessionId(id)
                 .ifPresent(response -> questionResponseStore.markCancelled(response.id()));
         return session;
+    }
+
+    /**
+     * Returns an immutable snapshot of answered Q&amp;A pairs for a completed interview.
+     */
+    public CompletedInterviewSnapshot requireCompletedInterviewSnapshot(SessionId id) {
+        InterviewSession session = loadOrThrow(id);
+        if (!(session.state() instanceof SessionState.Completed)
+                && !(session.state() instanceof SessionState.ReportReady)) {
+            throw new SessionNotCompletedException(id, session.state());
+        }
+        return CompletedInterviewSnapshots.from(session);
+    }
+
+    /**
+     * Returns whether the session exists and is eligible for report retrieval
+     * ({@code COMPLETED} or {@code REPORT_READY}).
+     */
+    public SessionReportAccess resolveReportAccess(SessionId id) {
+        return sessionRepository.findById(id)
+                .map(session -> switch (session.state()) {
+                    case SessionState.Completed ignored -> SessionReportAccess.ELIGIBLE;
+                    case SessionState.ReportReady ignored -> SessionReportAccess.ELIGIBLE;
+                    default -> SessionReportAccess.NOT_ELIGIBLE;
+                })
+                .orElse(SessionReportAccess.NOT_FOUND);
+    }
+
+    /**
+     * Marks a completed interview as having a ready report. Idempotent, so redelivered
+     * interview-completed messages cannot fail on an already report-ready session.
+     */
+    public InterviewSession markReportReady(SessionId id) {
+        return transactionTemplate.execute(status -> {
+            InterviewSession session = loadOrThrow(id);
+            if (session.state() instanceof SessionState.ReportReady) {
+                return session;
+            }
+            InterviewSession reportReady = session.apply(new SessionCommand.MarkReportReady());
+            sessionRepository.save(reportReady);
+            return reportReady;
+        });
     }
 
     private InterviewSession loadOrThrow(SessionId id) {

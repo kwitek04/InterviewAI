@@ -1,0 +1,5 @@
+spring:
+  main:
+    web-application-type: none
+    # Non-web apps exit after refresh unless keep-alive is enabled.
+    keep-alive: true

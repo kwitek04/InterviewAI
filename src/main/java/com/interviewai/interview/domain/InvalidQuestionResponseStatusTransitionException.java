@@ -1,6 +1,4 @@
-package com.interviewai.interview.application;
-
-import com.interviewai.interview.domain.QuestionResponseStatus;
+package com.interviewai.interview.domain;
 
 /**
  * Thrown when a {@link QuestionResponseStatus} transition is not allowed.

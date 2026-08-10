@@ -8,9 +8,17 @@ export class ApiError extends Error {
   }
 }
 
+export class ReportFailedError extends Error {
+  constructor(message, status = 422) {
+    super(message);
+    this.name = 'ReportFailedError';
+    this.status = status;
+  }
+}
+
 async function extractErrorMessage(response) {
   try {
-    // The backend returns RFC 7807 ProblemDetail bodies (400/404/409).
+    // The backend returns RFC 7807 ProblemDetail bodies (400/404/409/422).
     const problem = await response.json();
     return problem.detail || problem.title || `Request failed (status ${response.status}).`;
   } catch {
@@ -62,8 +70,37 @@ export function submitAnswer(sessionId, answer) {
 }
 
 /**
+ * Ends the interview and returns the session view.
+ */
+export function endInterview(sessionId) {
+  return fetch(`${BASE_URL}/api/v1/sessions/${sessionId}/end`, {
+    method: 'POST',
+  }).then(handleResponse);
+}
+
+/**
  * Fetches the full session state and transcript.
  */
 export function fetchSession(sessionId) {
   return fetch(`${BASE_URL}/api/v1/sessions/${sessionId}`).then(handleResponse);
+}
+
+/**
+ * Polls report generation status.
+ * Returns { kind: 'in_progress', status } or { kind: 'ready', ...report }.
+ */
+export async function fetchReport(sessionId) {
+  const response = await fetch(`${BASE_URL}/api/v1/sessions/${sessionId}/report`);
+  if (response.status === 202) {
+    const body = await response.json();
+    return { kind: 'in_progress', status: body.status };
+  }
+  if (response.status === 200) {
+    const body = await response.json();
+    return { kind: 'ready', ...body };
+  }
+  if (response.status === 422) {
+    throw new ReportFailedError(await extractErrorMessage(response), 422);
+  }
+  throw new ApiError(await extractErrorMessage(response), response.status);
 }

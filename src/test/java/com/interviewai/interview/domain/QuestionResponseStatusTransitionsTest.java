@@ -1,6 +1,5 @@
 package com.interviewai.interview.domain;
 
-import com.interviewai.interview.application.InvalidQuestionResponseStatusTransitionException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;

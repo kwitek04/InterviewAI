@@ -1,9 +1,9 @@
 package com.interviewai.interview.adapter.out.persistence;
 
 import com.interviewai.interview.application.ActiveQuestionResponseAlreadyExistsException;
-import com.interviewai.interview.application.InvalidQuestionResponseStatusTransitionException;
 import com.interviewai.interview.application.QuestionResponseNotFoundException;
 import com.interviewai.interview.application.port.out.QuestionResponseStore;
+import com.interviewai.interview.domain.InvalidQuestionResponseStatusTransitionException;
 import com.interviewai.interview.domain.QuestionResponse;
 import com.interviewai.interview.domain.QuestionResponseEventType;
 import com.interviewai.interview.domain.QuestionResponseStatus;

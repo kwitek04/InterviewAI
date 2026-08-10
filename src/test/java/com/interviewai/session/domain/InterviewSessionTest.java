@@ -78,6 +78,17 @@ class InterviewSessionTest {
     }
 
     @Test
+    @DisplayName("marking a completed session report-ready transitions it to ReportReady")
+    void apply_markReportReadyOnCompleted_transitionsToReportReady() {
+        InterviewSession completed = new InterviewSession(
+                SessionId.generate(), null, new SessionState.Completed(), Transcript.empty());
+
+        InterviewSession result = completed.apply(new SessionCommand.MarkReportReady());
+
+        assertThat(result.state()).isEqualTo(new SessionState.ReportReady());
+    }
+
+    @Test
     @DisplayName("cancelling a newly created session transitions it to Cancelled")
     void apply_cancelInterviewOnCreated_transitionsToCancelled() {
         InterviewSession created = InterviewSession.create(SessionId.generate());
@@ -225,29 +236,31 @@ class InterviewSessionTest {
     }
 
     @Test
-    @DisplayName("SessionState has exactly the five expected permitted implementations")
-    void sessionState_permittedSubclasses_areExactlyFiveExpectedTypes() {
+    @DisplayName("SessionState has exactly the six expected permitted implementations")
+    void sessionState_permittedSubclasses_areExactlySixExpectedTypes() {
         assertThat(SessionState.class.getPermittedSubclasses()).containsExactlyInAnyOrder(
                 SessionState.Created.class,
                 SessionState.InProgress.class,
                 SessionState.AwaitingAnswer.class,
                 SessionState.Completed.class,
+                SessionState.ReportReady.class,
                 SessionState.Cancelled.class);
     }
 
     @Test
-    @DisplayName("SessionCommand has exactly the five expected permitted implementations")
-    void sessionCommand_permittedSubclasses_areExactlyFiveExpectedTypes() {
+    @DisplayName("SessionCommand has exactly the six expected permitted implementations")
+    void sessionCommand_permittedSubclasses_areExactlySixExpectedTypes() {
         assertThat(SessionCommand.class.getPermittedSubclasses()).containsExactlyInAnyOrder(
                 SessionCommand.StartInterview.class,
                 SessionCommand.AskQuestion.class,
                 SessionCommand.SubmitAnswer.class,
                 SessionCommand.EndInterview.class,
+                SessionCommand.MarkReportReady.class,
                 SessionCommand.CancelInterview.class);
     }
 
     /**
-     * Every one of the 5 states x 5 commands = 25 combinations, each mapped to either
+     * Every one of the 6 states x 6 commands = 36 combinations, each mapped to either
      * the expected resulting state class (legal transition) or {@code null}, meaning
      * the combination must throw {@link SessionTransitionException}.
      */
@@ -259,6 +272,7 @@ class InterviewSessionTest {
                         new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
                 illegal(new SessionState.Created(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
                 illegal(new SessionState.Created(), new SessionCommand.EndInterview()),
+                illegal(new SessionState.Created(), new SessionCommand.MarkReportReady()),
                 legal(new SessionState.Created(), new SessionCommand.CancelInterview(), SessionState.Cancelled.class),
 
                 // InProgress
@@ -269,6 +283,7 @@ class InterviewSessionTest {
                 illegal(new SessionState.InProgress(),
                         new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
                 illegal(new SessionState.InProgress(), new SessionCommand.EndInterview()),
+                illegal(new SessionState.InProgress(), new SessionCommand.MarkReportReady()),
                 legal(new SessionState.InProgress(), new SessionCommand.CancelInterview(), SessionState.Cancelled.class),
 
                 // AwaitingAnswer
@@ -279,16 +294,27 @@ class InterviewSessionTest {
                         new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME),
                         SessionState.InProgress.class),
                 legal(new SessionState.AwaitingAnswer(), new SessionCommand.EndInterview(), SessionState.Completed.class),
+                illegal(new SessionState.AwaitingAnswer(), new SessionCommand.MarkReportReady()),
                 legal(new SessionState.AwaitingAnswer(), new SessionCommand.CancelInterview(),
                         SessionState.Cancelled.class),
 
-                // Completed (terminal)
+                // Completed
                 illegal(new SessionState.Completed(), new SessionCommand.StartInterview()),
                 illegal(new SessionState.Completed(),
                         new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
                 illegal(new SessionState.Completed(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
                 illegal(new SessionState.Completed(), new SessionCommand.EndInterview()),
+                legal(new SessionState.Completed(), new SessionCommand.MarkReportReady(), SessionState.ReportReady.class),
                 illegal(new SessionState.Completed(), new SessionCommand.CancelInterview()),
+
+                // ReportReady (terminal)
+                illegal(new SessionState.ReportReady(), new SessionCommand.StartInterview()),
+                illegal(new SessionState.ReportReady(),
+                        new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
+                illegal(new SessionState.ReportReady(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
+                illegal(new SessionState.ReportReady(), new SessionCommand.EndInterview()),
+                illegal(new SessionState.ReportReady(), new SessionCommand.MarkReportReady()),
+                illegal(new SessionState.ReportReady(), new SessionCommand.CancelInterview()),
 
                 // Cancelled (terminal)
                 illegal(new SessionState.Cancelled(), new SessionCommand.StartInterview()),
@@ -296,6 +322,7 @@ class InterviewSessionTest {
                         new SessionCommand.AskQuestion("Tell me about yourself", QUESTION_TIME)),
                 illegal(new SessionState.Cancelled(), new SessionCommand.SubmitAnswer("I am a developer", ANSWER_TIME)),
                 illegal(new SessionState.Cancelled(), new SessionCommand.EndInterview()),
+                illegal(new SessionState.Cancelled(), new SessionCommand.MarkReportReady()),
                 illegal(new SessionState.Cancelled(), new SessionCommand.CancelInterview())
         );
     }

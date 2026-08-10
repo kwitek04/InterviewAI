@@ -5,6 +5,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 
 import java.time.Clock;
+import java.util.UUID;
+import java.util.function.Supplier;
 
 @SpringBootApplication
 public class InterviewAiApplication {
@@ -16,5 +18,10 @@ public class InterviewAiApplication {
     @Bean
     Clock clock() {
         return Clock.systemUTC();
+    }
+
+    @Bean
+    Supplier<UUID> eventIdGenerator() {
+        return UUID::randomUUID;
     }
 }

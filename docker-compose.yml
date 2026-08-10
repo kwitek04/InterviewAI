@@ -1,5 +1,14 @@
 name: interviewai
 
+x-app-environment: &app-environment
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/interviewai
+  SPRING_DATASOURCE_USERNAME: interviewai
+  SPRING_DATASOURCE_PASSWORD: interviewai
+  INTERVIEWAI_LLM_OLLAMA_BASE_URL: http://ollama:11434
+  INTERVIEWAI_REPORT_LLM_BASE_URL: http://ollama:11434
+  INTERVIEWAI_STORAGE_S3_ENDPOINT: http://localstack:4566
+  INTERVIEWAI_MESSAGING_SQS_ENDPOINT: http://localstack:4566
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -68,6 +77,41 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  api:
+    build: .
+    image: interviewai:local
+    container_name: interviewai-api
+    environment:
+      <<: *app-environment
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  worker:
+    build: .
+    image: interviewai:local
+    container_name: interviewai-worker
+    environment:
+      <<: *app-environment
+      SPRING_PROFILES_ACTIVE: worker
+      SPRING_MAIN_KEEP_ALIVE: "true"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
 
 volumes:
   postgres-data:

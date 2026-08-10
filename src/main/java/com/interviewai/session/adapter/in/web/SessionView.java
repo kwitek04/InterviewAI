@@ -24,6 +24,7 @@ record SessionView(UUID sessionId, String state, List<MessageView> transcript) {
             case SessionState.InProgress() -> "IN_PROGRESS";
             case SessionState.AwaitingAnswer() -> "AWAITING_ANSWER";
             case SessionState.Completed() -> "COMPLETED";
+            case SessionState.ReportReady() -> "REPORT_READY";
             case SessionState.Cancelled() -> "CANCELLED";
         };
     }
