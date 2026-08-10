@@ -45,6 +45,7 @@ class WorkerRuntimeProfileIT {
     void workerProfile_hasConsumerAndNoWebServer() {
         assertThat(environment.getActiveProfiles()).contains("worker");
         assertThat(environment.getProperty("spring.main.web-application-type")).isEqualTo("none");
+        assertThat(environment.getProperty("spring.main.keep-alive")).isEqualTo("true");
         assertThat(applicationContext.getBeansOfType(InterviewCompletedQueueConsumer.class)).hasSize(1);
         assertThat(applicationContext.getBean(InterviewCompletedQueueConsumer.class).isEnabled()).isFalse();
         assertThat(applicationContext.getBeansOfType(RequestMappingHandlerMapping.class)).isEmpty();

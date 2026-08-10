@@ -72,21 +72,48 @@ class QuestionAssessmentValidatorTest {
                         List.of(
                                 new ScoredAnswer(0, 4, "Good"),
                                 new ScoredAnswer(1, 3, "Ok"),
-                                new ScoredAnswer(2, 2, "Extra"))),
-                Arguments.of(
-                        "out of order",
-                        List.of(
-                                new ScoredAnswer(1, 3, "Ok"),
-                                new ScoredAnswer(0, 4, "Good"))),
-                Arguments.of(
-                        "duplicate index",
-                        List.of(
-                                new ScoredAnswer(0, 4, "Good"),
-                                new ScoredAnswer(0, 3, "Duplicate"))),
-                Arguments.of(
-                        "index outside the transcript",
-                        List.of(
-                                new ScoredAnswer(0, 4, "Good"),
-                                new ScoredAnswer(5, 3, "Ok"))));
+                                new ScoredAnswer(2, 2, "Extra"))));
+    }
+
+    @Test
+    @DisplayName("out-of-order indices are remapped to transcript order")
+    void validateAndBind_withOutOfOrderScores_remapsByIndex() {
+        List<QuestionAssessment> assessments = QuestionAssessmentValidator.validateAndBind(
+                SNAPSHOT,
+                List.of(
+                        new ScoredAnswer(1, 3, "Ok"),
+                        new ScoredAnswer(0, 4, "Good")));
+
+        assertThat(assessments).containsExactly(
+                new QuestionAssessment(0, "Q0", "A0", 4, "Good"),
+                new QuestionAssessment(1, "Q1", "A1", 3, "Ok"));
+    }
+
+    @Test
+    @DisplayName("duplicate indices fall back to transcript list order")
+    void validateAndBind_withDuplicateIndices_bindsPositionally() {
+        List<QuestionAssessment> assessments = QuestionAssessmentValidator.validateAndBind(
+                SNAPSHOT,
+                List.of(
+                        new ScoredAnswer(0, 4, "Good"),
+                        new ScoredAnswer(0, 3, "Duplicate")));
+
+        assertThat(assessments).containsExactly(
+                new QuestionAssessment(0, "Q0", "A0", 4, "Good"),
+                new QuestionAssessment(1, "Q1", "A1", 3, "Duplicate"));
+    }
+
+    @Test
+    @DisplayName("unknown indices fall back to transcript list order")
+    void validateAndBind_withUnknownIndices_bindsPositionally() {
+        List<QuestionAssessment> assessments = QuestionAssessmentValidator.validateAndBind(
+                SNAPSHOT,
+                List.of(
+                        new ScoredAnswer(0, 4, "Good"),
+                        new ScoredAnswer(5, 3, "Ok")));
+
+        assertThat(assessments).containsExactly(
+                new QuestionAssessment(0, "Q0", "A0", 4, "Good"),
+                new QuestionAssessment(1, "Q1", "A1", 3, "Ok"));
     }
 }

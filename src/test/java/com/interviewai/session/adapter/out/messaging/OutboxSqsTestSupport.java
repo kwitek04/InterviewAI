@@ -3,9 +3,9 @@ package com.interviewai.session.adapter.out.messaging;
 import com.interviewai.shared.SessionId;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
-import software.amazon.awssdk.services.sqs.model.PurgeQueueRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 
 import java.sql.Timestamp;
@@ -32,8 +32,20 @@ final class OutboxSqsTestSupport {
     }
 
     Message awaitMessage(String queueName) {
-        return awaitOptional(() -> receiveOnce(queueName).stream().findFirst())
-                .orElseThrow(() -> new AssertionError("No SQS message received from " + queueName));
+        return awaitMessageContaining(queueName, null);
+    }
+
+    Message awaitMessageContaining(String queueName, String bodyMarker) {
+        return awaitOptional(() -> {
+            for (Message message : receiveOnce(queueName)) {
+                deleteMessage(queueUrl(queueName), message);
+                if (bodyMarker == null || message.body().contains(bodyMarker)) {
+                    return Optional.of(message);
+                }
+            }
+            return Optional.empty();
+        }).orElseThrow(() -> new AssertionError("No SQS message received from " + queueName
+                + (bodyMarker == null ? "" : " containing " + bodyMarker)));
     }
 
     List<Message> receiveOnce(String queueName) {
@@ -41,13 +53,37 @@ final class OutboxSqsTestSupport {
                         .queueUrl(queueUrl(queueName))
                         .maxNumberOfMessages(10)
                         .waitTimeSeconds(1)
+                        .visibilityTimeout(5)
                         .messageAttributeNames("All")
                         .build())
                 .messages();
     }
 
+    /**
+     * Drains the queue by repeatedly receiving and deleting messages.
+     * Prefer this over {@code PurgeQueue}, which is rate-limited to once per 60 seconds.
+     */
+    void drainQueue(String queueName) {
+        String queueUrl = queueUrl(queueName);
+        for (int attempt = 0; attempt < 20; attempt++) {
+            List<Message> messages = sqsClient.receiveMessage(ReceiveMessageRequest.builder()
+                            .queueUrl(queueUrl)
+                            .maxNumberOfMessages(10)
+                            .waitTimeSeconds(0)
+                            .visibilityTimeout(30)
+                            .build())
+                    .messages();
+            if (messages.isEmpty()) {
+                return;
+            }
+            for (Message message : messages) {
+                deleteMessage(queueUrl, message);
+            }
+        }
+    }
+
     void purgeQueue(String queueName) {
-        sqsClient.purgeQueue(PurgeQueueRequest.builder().queueUrl(queueUrl(queueName)).build());
+        drainQueue(queueName);
     }
 
     String queueUrl(String queueName) {
@@ -92,12 +128,35 @@ final class OutboxSqsTestSupport {
                 .update();
     }
 
+    /**
+     * Promotes a stuck publication to {@code FAILED}, matching what the staleness monitor
+     * does before scheduled resubmission can deliver it again.
+     */
+    void markFailed(SessionId sessionId) {
+        jdbcClient.sql("""
+                        UPDATE event_publication
+                        SET status = 'FAILED',
+                            completion_date = NULL
+                        WHERE serialized_event LIKE :sessionMarker
+                          AND completion_date IS NULL
+                        """)
+                .param("sessionMarker", sessionMarker(sessionId))
+                .update();
+    }
+
     void awaitUntil(Supplier<Boolean> condition) {
         boolean satisfied = awaitOptional(() -> condition.get() ? Optional.of(Boolean.TRUE) : Optional.empty())
                 .isPresent();
         if (!satisfied) {
             throw new AssertionError("Condition was not satisfied within " + timeout);
         }
+    }
+
+    private void deleteMessage(String queueUrl, Message message) {
+        sqsClient.deleteMessage(DeleteMessageRequest.builder()
+                .queueUrl(queueUrl)
+                .receiptHandle(message.receiptHandle())
+                .build());
     }
 
     private int count(SessionId sessionId, String sql) {

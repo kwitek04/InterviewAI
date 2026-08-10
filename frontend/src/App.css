@@ -374,7 +374,15 @@
   background: var(--color-busy);
 }
 
-.restart-button {
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.restart-button,
+.end-interview-button {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   border-radius: var(--radius-sm);
@@ -389,10 +397,28 @@
     color 0.15s ease;
 }
 
-.restart-button:hover {
+.restart-button:hover,
+.end-interview-button:hover:not(:disabled) {
   background: #f9fafb;
   border-color: var(--color-border-strong);
   color: var(--color-text-primary);
+}
+
+.end-interview-button {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.end-interview-button:focus-visible,
+.restart-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.end-interview-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .chat-messages {
@@ -606,5 +632,301 @@
     height: calc(100vh - 24px);
     max-height: none;
     border-radius: var(--radius-md);
+  }
+
+  .chat-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .chat-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ---------- Report screens ---------- */
+
+.report-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px 64px;
+  background:
+    linear-gradient(to right, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+    var(--color-bg);
+  background-size: 48px 48px, 48px 48px, auto;
+}
+
+.report-panel,
+.report-layout {
+  width: 100%;
+  max-width: 880px;
+}
+
+.report-panel {
+  padding: 36px 32px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.report-panel--generating {
+  max-width: 560px;
+  margin-top: 8vh;
+}
+
+.report-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 36px;
+}
+
+.report-kicker {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.report-title {
+  margin: 0 0 12px;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--color-text-primary);
+}
+
+.report-lead {
+  margin: 0;
+  max-width: 40rem;
+  color: var(--color-text-secondary);
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+.report-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 28px 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.report-progress-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: report-pulse 1.2s ease-in-out infinite;
+}
+
+.report-inline-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--color-danger-text);
+}
+
+.report-secondary-action {
+  margin-top: 28px;
+}
+
+.report-action-button {
+  width: auto;
+  min-width: 180px;
+  flex-shrink: 0;
+}
+
+.report-action-button:focus-visible,
+.report-secondary-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.section-heading {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.assessment-section {
+  margin-bottom: 36px;
+}
+
+.assessment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.assessment-row {
+  padding: 18px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.assessment-row-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.assessment-question {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.assessment-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin: 0;
+}
+
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--color-border-strong);
+  background: #f3f4f6;
+  color: var(--color-text-primary);
+}
+
+.score-badge--1,
+.score-badge--2 {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text);
+}
+
+.score-badge--3 {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.score-badge--4,
+.score-badge--5 {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #065f46;
+}
+
+.score-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.assessment-details {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.assessment-details dt {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.assessment-details dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+}
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.insight-block {
+  padding: 18px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.insight-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.insight-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+@keyframes report-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-progress-dot {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+@media (max-width: 800px) {
+  .report-header {
+    flex-direction: column;
+  }
+
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assessment-row-header {
+    flex-direction: column;
+  }
+
+  .assessment-score {
+    align-items: flex-start;
   }
 }

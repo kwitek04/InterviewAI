@@ -101,6 +101,8 @@ services:
     environment:
       <<: *app-environment
       SPRING_PROFILES_ACTIVE: worker
+      SPRING_MAIN_KEEP_ALIVE: "true"
+    restart: unless-stopped
     depends_on:
       api:
         condition: service_started

@@ -130,6 +130,20 @@ public class SessionApplicationService {
     }
 
     /**
+     * Returns whether the session exists and is eligible for report retrieval
+     * ({@code COMPLETED} or {@code REPORT_READY}).
+     */
+    public SessionReportAccess resolveReportAccess(SessionId id) {
+        return sessionRepository.findById(id)
+                .map(session -> switch (session.state()) {
+                    case SessionState.Completed ignored -> SessionReportAccess.ELIGIBLE;
+                    case SessionState.ReportReady ignored -> SessionReportAccess.ELIGIBLE;
+                    default -> SessionReportAccess.NOT_ELIGIBLE;
+                })
+                .orElse(SessionReportAccess.NOT_FOUND);
+    }
+
+    /**
      * Marks a completed interview as having a ready report. Idempotent, so redelivered
      * interview-completed messages cannot fail on an already report-ready session.
      */

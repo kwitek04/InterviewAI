@@ -7,9 +7,11 @@ function ChatScreen({
   messages,
   streamTarget,
   isStreaming,
+  isEnding,
   isReconnecting,
   error,
   onSendAnswer,
+  onEndInterview,
   onRestart,
   onToken,
   onCompleted,
@@ -42,6 +44,8 @@ function ChatScreen({
       ? 'typing…'
       : 'online';
 
+  const endDisabled = isStreaming || isEnding;
+
   return (
     <div className="chat-shell">
       <div className="chat-screen">
@@ -60,9 +64,29 @@ function ChatScreen({
               </span>
             </div>
           </div>
-          <button className="restart-button" onClick={onRestart} title="Start a new interview">
-            New interview
-          </button>
+          <div className="chat-header-actions">
+            <button
+              type="button"
+              className="end-interview-button"
+              onClick={onEndInterview}
+              disabled={endDisabled}
+              title={
+                isStreaming
+                  ? 'Wait until the current question finishes streaming'
+                  : 'End the interview and generate feedback'
+              }
+            >
+              {isEnding ? 'Ending…' : 'End interview'}
+            </button>
+            <button
+              type="button"
+              className="restart-button"
+              onClick={onRestart}
+              title="Start a new interview"
+            >
+              New interview
+            </button>
+          </div>
         </header>
 
         <div className="chat-messages">
@@ -80,7 +104,11 @@ function ChatScreen({
 
         {error && <div className="chat-error">{error}</div>}
 
-        <ChatInput onSend={onSendAnswer} disabled={isStreaming} isStreaming={isStreaming} />
+        <ChatInput
+          onSend={onSendAnswer}
+          disabled={isStreaming || isEnding}
+          isStreaming={isStreaming}
+        />
       </div>
     </div>
   );

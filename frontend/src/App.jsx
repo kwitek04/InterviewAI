@@ -1,7 +1,11 @@
 import { useCallback, useState } from 'react';
 import StartScreen from './components/StartScreen.jsx';
 import ChatScreen from './components/ChatScreen.jsx';
-import { uploadCv, startInterview, submitAnswer, ApiError } from './api/interviewApi.js';
+import ReportGeneratingScreen from './components/ReportGeneratingScreen.jsx';
+import ReportFailedScreen from './components/ReportFailedScreen.jsx';
+import ReportScreen from './components/ReportScreen.jsx';
+import { uploadCv, startInterview, submitAnswer, endInterview, ApiError } from './api/interviewApi.js';
+import { useReportPolling } from './hooks/useReportPolling.js';
 import './App.css';
 
 let messageIdSeq = 0;
@@ -21,13 +25,19 @@ function matchesResponseId(entryResponseId, activeResponseId) {
 }
 
 function App() {
+  const [phase, setPhase] = useState('start');
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isStarting, setIsStarting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [streamTarget, setStreamTarget] = useState(null);
   const [error, setError] = useState(null);
+  const [reportStatus, setReportStatus] = useState('PENDING');
+  const [report, setReport] = useState(null);
+  const [reportFailure, setReportFailure] = useState(null);
+  const [pollNotice, setPollNotice] = useState(null);
 
   const handleToken = useCallback((responseId, text) => {
     setIsReconnecting(false);
@@ -74,6 +84,7 @@ function App() {
       const cvResponse = await uploadCv(file, jobOffer);
       const sessionResponse = await startInterview(cvResponse.cvId);
       setSessionId(sessionResponse.sessionId);
+      setPhase('chat');
       setIsStreaming(true);
       setIsReconnecting(false);
       setMessages([
@@ -100,7 +111,7 @@ function App() {
 
   const handleSendAnswer = useCallback(
     async (answerText) => {
-      if (!sessionId || isStreaming) return;
+      if (!sessionId || isStreaming || phase !== 'chat') return;
 
       setMessages((prev) => [...prev, { id: nextMessageId(), role: 'CANDIDATE', content: answerText }]);
       setIsStreaming(true);
@@ -130,8 +141,30 @@ function App() {
         setError(toErrorMessage(err));
       }
     },
-    [sessionId, isStreaming],
+    [sessionId, isStreaming, phase],
   );
+
+  const handleEndInterview = useCallback(async () => {
+    if (!sessionId || isStreaming || isEnding || phase !== 'chat') return;
+
+    setIsEnding(true);
+    setError(null);
+    try {
+      await endInterview(sessionId);
+      setStreamTarget(null);
+      setIsStreaming(false);
+      setIsReconnecting(false);
+      setReportStatus('PENDING');
+      setReport(null);
+      setReportFailure(null);
+      setPollNotice(null);
+      setPhase('generating');
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsEnding(false);
+    }
+  }, [sessionId, isStreaming, isEnding, phase]);
 
   const handleRestart = useCallback(() => {
     setStreamTarget(null);
@@ -140,11 +173,61 @@ function App() {
     setError(null);
     setIsStarting(false);
     setIsStreaming(false);
+    setIsEnding(false);
     setIsReconnecting(false);
+    setReportStatus('PENDING');
+    setReport(null);
+    setReportFailure(null);
+    setPollNotice(null);
+    setPhase('start');
   }, []);
 
-  if (!sessionId) {
+  useReportPolling(sessionId, {
+    enabled: phase === 'generating',
+    onReady: (readyReport) => {
+      setReport(readyReport);
+      setPollNotice(null);
+      setPhase('report');
+    },
+    onFailed: (failure) => {
+      setReportFailure(failure.message);
+      setPollNotice(null);
+      setPhase('failed');
+    },
+    onStatus: (status) => {
+      setReportStatus(status);
+      setPollNotice(null);
+    },
+    onTransientError: () => {
+      setPollNotice('Temporary connection issue. Retrying…');
+    },
+  });
+
+  if (phase === 'start' || !sessionId) {
     return <StartScreen onStart={handleStart} isLoading={isStarting} error={error} />;
+  }
+
+  if (phase === 'generating') {
+    return (
+      <ReportGeneratingScreen
+        status={reportStatus}
+        error={pollNotice}
+        onRestart={handleRestart}
+      />
+    );
+  }
+
+  if (phase === 'failed') {
+    return (
+      <ReportFailedScreen
+        message={reportFailure || 'Report generation did not complete.'}
+        onRestart={handleRestart}
+      />
+    );
+  }
+
+  if (phase === 'report' && report) {
+    return <ReportScreen report={report} onRestart={handleRestart} />;
   }
 
   return (
@@ -152,9 +235,11 @@ function App() {
       messages={messages}
       streamTarget={streamTarget}
       isStreaming={isStreaming}
+      isEnding={isEnding}
       isReconnecting={isReconnecting}
       error={error}
       onSendAnswer={handleSendAnswer}
+      onEndInterview={handleEndInterview}
       onRestart={handleRestart}
       onToken={handleToken}
       onCompleted={handleCompleted}

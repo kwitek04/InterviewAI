@@ -2,6 +2,7 @@ package com.interviewai.architecture;
 
 import com.interviewai.session.application.CompletedInterviewSnapshot;
 import com.interviewai.session.application.SessionApplicationService;
+import com.interviewai.session.application.SessionReportAccess;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -106,7 +107,8 @@ class ModuleBoundaryTest {
                         String name = javaClass.getName();
                         return name.startsWith("com.interviewai.session.")
                                 && !name.startsWith(SessionApplicationService.class.getName())
-                                && !name.startsWith(CompletedInterviewSnapshot.class.getName());
+                                && !name.startsWith(CompletedInterviewSnapshot.class.getName())
+                                && !name.startsWith(SessionReportAccess.class.getName());
                     }
                 })
                 .check(PRODUCTION_CLASSES);

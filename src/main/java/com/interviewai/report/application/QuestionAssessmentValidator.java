@@ -4,8 +4,12 @@ import com.interviewai.report.domain.QuestionAssessment;
 import com.interviewai.session.application.CompletedInterviewSnapshot;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Validates stage-1 scored answers and binds them to transcript question/answer text.
@@ -39,7 +43,8 @@ public final class QuestionAssessmentValidator {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
         Objects.requireNonNull(scoredAnswers, "scoredAnswers must not be null");
 
-        int expectedCount = snapshot.answeredQuestions().size();
+        List<CompletedInterviewSnapshot.AnsweredQuestion> pairs = snapshot.answeredQuestions();
+        int expectedCount = pairs.size();
         if (expectedCount == 0) {
             throw new InvalidReportContentException("Completed interview has no answered questions");
         }
@@ -48,15 +53,11 @@ public final class QuestionAssessmentValidator {
                     "Expected " + expectedCount + " assessments but received " + scoredAnswers.size());
         }
 
+        List<ScoredAnswer> ordered = orderScores(pairs, scoredAnswers);
         List<QuestionAssessment> assessments = new ArrayList<>(expectedCount);
-        for (int i = 0; i < scoredAnswers.size(); i++) {
-            ScoredAnswer scored = Objects.requireNonNull(scoredAnswers.get(i), "scored answer must not be null");
-            if (scored.questionIndex() != i) {
-                throw new InvalidReportContentException(
-                        "Assessments must be ordered by questionIndex; expected " + i
-                                + " but was " + scored.questionIndex());
-            }
-            CompletedInterviewSnapshot.AnsweredQuestion pair = snapshot.answeredQuestions().get(i);
+        for (int i = 0; i < expectedCount; i++) {
+            ScoredAnswer scored = Objects.requireNonNull(ordered.get(i), "scored answer must not be null");
+            CompletedInterviewSnapshot.AnsweredQuestion pair = pairs.get(i);
             assessments.add(new QuestionAssessment(
                     pair.questionIndex(),
                     pair.question(),
@@ -65,5 +66,38 @@ public final class QuestionAssessmentValidator {
                     scored.rationale().trim()));
         }
         return List.copyOf(assessments);
+    }
+
+    /**
+     * Prefers matching by {@code questionIndex} when the model returns a permutation of the
+     * transcript indices; otherwise binds by list order (local models often repeat index 0).
+     */
+    private static List<ScoredAnswer> orderScores(
+            List<CompletedInterviewSnapshot.AnsweredQuestion> pairs, List<ScoredAnswer> scoredAnswers) {
+        Set<Integer> expectedIndices = new HashSet<>();
+        for (CompletedInterviewSnapshot.AnsweredQuestion pair : pairs) {
+            expectedIndices.add(pair.questionIndex());
+        }
+
+        Map<Integer, ScoredAnswer> byIndex = new HashMap<>();
+        boolean uniqueAndComplete = true;
+        for (ScoredAnswer scored : scoredAnswers) {
+            Objects.requireNonNull(scored, "scored answer must not be null");
+            if (!expectedIndices.contains(scored.questionIndex()) || byIndex.put(scored.questionIndex(), scored) != null) {
+                uniqueAndComplete = false;
+                break;
+            }
+        }
+        uniqueAndComplete = uniqueAndComplete && byIndex.size() == expectedIndices.size();
+
+        if (uniqueAndComplete) {
+            List<ScoredAnswer> ordered = new ArrayList<>(pairs.size());
+            for (CompletedInterviewSnapshot.AnsweredQuestion pair : pairs) {
+                ordered.add(byIndex.get(pair.questionIndex()));
+            }
+            return ordered;
+        }
+
+        return List.copyOf(scoredAnswers);
     }
 }

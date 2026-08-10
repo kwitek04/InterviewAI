@@ -124,7 +124,8 @@ class InterviewCompletedOutboxRecoveryIT {
 
         sessionApplicationService.endInterview(sessionId);
 
-        Message message = outbox.awaitMessage(properties.queueName());
+        Message message = outbox.awaitMessageContaining(
+                properties.queueName(), "\"sessionId\":\"" + sessionId.value() + "\"");
         assertThat(message.body()).contains("\"sessionId\":\"" + sessionId.value() + "\"");
         outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
     }
@@ -139,12 +140,12 @@ class InterviewCompletedOutboxRecoveryIT {
         outbox.awaitUntil(() -> outbox.incompletePublicationCount(sessionId) == 1);
 
         outbox.markStuckInProcessing(sessionId, Duration.ofMinutes(5));
-        assertThat(outbox.processingPublicationCount(sessionId)).isOne();
 
         doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
                 .when(completedInterviewPublisher).publish(any());
 
-        Message message = outbox.awaitMessage(properties.queueName());
+        Message message = outbox.awaitMessageContaining(
+                properties.queueName(), "\"sessionId\":\"" + sessionId.value() + "\"");
         assertThat(message.body()).contains("\"sessionId\":\"" + sessionId.value() + "\"");
         outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
     }

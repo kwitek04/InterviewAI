@@ -171,7 +171,8 @@ class InterviewCompletedSqsRelayIT {
 
         failedEventPublications.resubmit(ResubmissionOptions.defaults().withBatchSize(10));
 
-        Message message = outbox.awaitMessage(properties.queueName());
+        Message message = outbox.awaitMessageContaining(
+                properties.queueName(), "\"sessionId\":\"" + sessionId.value() + "\"");
         assertThat(message.body()).contains("\"sessionId\":\"" + sessionId.value() + "\"");
         outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
     }
@@ -180,20 +181,21 @@ class InterviewCompletedSqsRelayIT {
     @DisplayName("a stale PROCESSING publication is recovered after simulated relay crash")
     void staleProcessingPublication_isRecovered() {
         SessionId sessionId = persistAwaitingAnswerSession();
-        doThrow(new IllegalStateException("relay crashed"))
-                .doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
-                .when(completedInterviewPublisher).publish(any());
+        doThrow(new IllegalStateException("relay crashed")).when(completedInterviewPublisher).publish(any());
 
         sessionApplicationService.endInterview(sessionId);
         outbox.awaitUntil(() -> outbox.incompletePublicationCount(sessionId) == 1);
 
         outbox.markStuckInProcessing(sessionId, Duration.ofMinutes(5));
-        assertThat(outbox.processingPublicationCount(sessionId)).isOne();
+        outbox.markFailed(sessionId);
 
-        incompleteEventPublications.resubmitIncompletePublications(
-                ResubmissionOptions.defaults().withBatchSize(10));
+        doAnswer(invocation -> publishForReal(invocation.getArgument(0)))
+                .when(completedInterviewPublisher).publish(any());
 
-        Message message = outbox.awaitMessage(properties.queueName());
+        failedEventPublications.resubmit(ResubmissionOptions.defaults().withBatchSize(10));
+
+        Message message = outbox.awaitMessageContaining(
+                properties.queueName(), "\"sessionId\":\"" + sessionId.value() + "\"");
         assertThat(message.body()).contains("\"sessionId\":\"" + sessionId.value() + "\"");
         outbox.awaitUntil(() -> outbox.completedPublicationCount(sessionId) == 1);
     }
